@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
-"""Generate prompt-based biomedical sentences with vLLM.
-
-The original balanced plan contained general and biomedical records. This
-version retains only its biomedical records, including their original odd
-``gen_<n>`` IDs. With the historical 540,000 candidate records, the output is
-270,000 biomedical records: 30,000 for each of nine languages.
-
-Run at most one process per model/output file. Slurm arrays may assign one
-model to each task, but multiple tasks must not append to the same JSONL file.
+"""
+Generate prompt-based biomedical sentences with vLLM.
 """
 
 from __future__ import annotations
@@ -96,7 +89,7 @@ Sentence:"""
 
 
 def clean_completion(text: str) -> str:
-    """Apply the original conservative one-sentence cleanup."""
+    """Apply one-sentence cleanup."""
     if not text:
         return ""
     output = text.strip()
@@ -122,7 +115,7 @@ def clean_completion(text: str) -> str:
 
 
 def build_generation_plan(total_candidates: int) -> list[dict[str, Any]]:
-    """Filter the historical alternating-domain plan to biomedical records."""
+    """Filter alternating-domain plan to biomedical records."""
     combinations = list(itertools.product(LANGUAGES, ORIGINAL_DOMAINS))
     plan: list[dict[str, Any]] = []
     for index in range(total_candidates):
@@ -179,7 +172,7 @@ def apply_pllum_compatibility(model_id: str) -> None:
 
 
 def adjusted_resources(model_id: str, base_memory: float, base_chunk: int) -> tuple[float, int]:
-    """Preserve the original conservative settings for large and MoE models."""
+    """Adjust resources for large and MoE models."""
     markers = ("420b", "119b", "80b", "70b", "8x7b", "14b", "12b")
     if any(marker in model_id.casefold() for marker in markers):
         return min(0.98, base_memory + 0.05), min(base_chunk, 64)
@@ -241,7 +234,6 @@ def parse_args() -> argparse.Namespace:
         "--total-records",
         type=int,
         default=DEFAULT_TOTAL_CANDIDATES,
-        help="Historical candidate-plan size; only its biomedical half is generated.",
     )
     parser.add_argument("--test-records", type=int, default=DEFAULT_TEST_CANDIDATES)
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
