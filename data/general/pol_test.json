@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Polish",
+        "language_tag": "pol-pl",
+        "source": "web",
+        "id": 1,
+        "text": "Jestem tekstem internetowym"
+      },
+      {
+        "language": "Polish",
+        "language_tag": "pol-pl",
+        "source": "news",
+        "id": 2,
+        "text": "To jest przykład wiadomości"
+      },
+      {
+        "language": "Polish",
+        "language_tag": "pol-pl",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Tutaj znajduje się przykład z Wikipedii"
+      }
+]

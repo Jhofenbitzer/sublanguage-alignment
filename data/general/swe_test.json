@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Swedish",
+        "language_tag": "swe-se",
+        "source": "web",
+        "id": 1,
+        "text": "Jag är en webbtext"
+      },
+      {
+        "language": "Swedish",
+        "language_tag": "swe-se",
+        "source": "news",
+        "id": 2,
+        "text": "Det här är ett nyhetsexempel"
+      },
+      {
+        "language": "Swedish",
+        "language_tag": "swe-se",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Här finns ett Wikipedia-exempel"
+      }
+]

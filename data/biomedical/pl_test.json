@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Polish",
+        "language_tag": "pl",
+        "source": "biomedical",
+        "id": "pl:0",
+        "text": "To jest przykładowy tekst"
+      },
+      {
+        "language": "Polish",
+        "language_tag": "pl",
+        "source": "biomedical",
+        "id": "pl:1",
+        "text": "To jest kolejny przykładowy tekst"
+      },
+      {
+        "language": "Polish",
+        "language_tag": "pl",
+        "source": "biomedical",
+        "id": "pl:2",
+        "text": "Jestem przykładem"
+      }
+]

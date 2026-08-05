@@ -1,0 +1,23 @@
+[
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:0",
+    "text": "Det här är en exempeltext - igen"
+  },
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:1",
+    "text": "Det här är ännu en exempeltext, än en gång"
+  },
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:2",
+    "text": "Jag är ett exempel, igen"
+  }
+]

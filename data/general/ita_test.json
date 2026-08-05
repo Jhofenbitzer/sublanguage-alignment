@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Italian",
+        "language_tag": "ita-it",
+        "source": "web",
+        "id": 1,
+        "text": "Sono un testo web"
+      },
+      {
+        "language": "Italian",
+        "language_tag": "ita-it",
+        "source": "news",
+        "id": 2,
+        "text": "Questo è un esempio di notizia"
+      },
+      {
+        "language": "Italian",
+        "language_tag": "ita-it",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Ecco un esempio tratto da Wikipedia"
+      }
+]

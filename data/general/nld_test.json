@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Dutch",
+        "language_tag": "nld-nl",
+        "source": "web",
+        "id": 1,
+        "text": "Ik ben een webtekst"
+      },
+      {
+        "language": "Dutch",
+        "language_tag": "nld-nl",
+        "source": "news",
+        "id": 2,
+        "text": "Dit is een nieuwsvoorbeeld"
+      },
+      {
+        "language": "Dutch",
+        "language_tag": "nld-nl",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Hier is een Wikipedia-voorbeeld"
+      }
+]

@@ -1,0 +1,23 @@
+[ 
+    {
+        "language": "Romanian",
+        "language_tag": "ron-ro",
+        "source": "web",
+        "id": 1,
+        "text": "Sunt un text web"
+      },
+      {
+        "language": "Romanian",
+        "language_tag": "ron-ro",
+        "source": "news",
+        "id": 2,
+        "text": "Acesta este un exemplu de știre"
+      },
+      {
+        "language": "Romanian",
+        "language_tag": "ron-ro",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Aici este un exemplu de pe Wikipedia"
+      }
+]

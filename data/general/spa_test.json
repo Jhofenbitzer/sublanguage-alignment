@@ -1,0 +1,23 @@
+[
+    {
+        "language": "Spanish",
+        "language_tag": "spa-es",
+        "source": "web",
+        "id": 1,
+        "text": "Soy un texto web"
+      },
+      {
+        "language": "Spanish",
+        "language_tag": "spa-es",
+        "source": "news",
+        "id": 2,
+        "text": "Este es un ejemplo de noticias"
+      },
+      {
+        "language": "Spanish",
+        "language_tag": "spa-es",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Aquí hay un ejemplo de Wikipedia"
+      }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:0",
+    "text": "Este es un texto de muestra - de nuevo"
+  },
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:1",
+    "text": "Este es otro texto de muestra, otra vez"
+  },
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:2",
+    "text": "Soy un ejemplo, de nuevo"
+  }
+]

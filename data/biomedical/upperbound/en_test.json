@@ -1,0 +1,23 @@
+[
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:0",
+    "text": "This is a sample text - again"
+  },
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:1",
+    "text": "This is another sample text, once again"
+  },
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:2",
+    "text": "I am an example, again"
+  }
+    ]

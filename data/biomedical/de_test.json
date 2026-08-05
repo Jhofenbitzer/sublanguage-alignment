@@ -1,0 +1,23 @@
+[
+    {
+      "language": "German",
+      "language_tag": "de",
+      "source": "biomedical",
+      "id": "de:0",
+      "text": "Das ist ein Beispieltext"
+    },
+    {
+        "language": "German",
+        "language_tag": "de",
+        "source": "biomedical",
+        "id": "de:1",
+        "text": "Das ist noch ein Beispieltext"
+      },
+      {
+        "language": "German",
+        "language_tag": "de",
+        "source": "biomedical",
+        "id": "de:2",
+        "text": "Ich bin ein Beispiel"
+      }
+    ]

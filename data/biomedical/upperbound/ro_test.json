@@ -1,0 +1,23 @@
+[
+  {
+    "language": "Romanian",
+    "language_tag": "ro",
+    "source": "biomedical",
+    "id": "ro:0",
+    "text": "Acesta este un text de probă - din nou"
+  },
+  {
+    "language": "Romanian",
+    "language_tag": "ro",
+    "source": "biomedical",
+    "id": "ro:1",
+    "text": "Acesta este încă un text de probă, iarăși"
+  },
+  {
+    "language": "Romanian",
+    "language_tag": "ro",
+    "source": "biomedical",
+    "id": "ro:2",
+    "text": "Sunt un exemplu, din nou"
+  }
+]

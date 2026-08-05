@@ -1,0 +1,23 @@
+[
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:0",
+    "text": "Dit is een voorbeeldtekst - opnieuw"
+  },
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:1",
+    "text": "Dit is nog een voorbeeldtekst, alweer"
+  },
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:2",
+    "text": "Ik ben een voorbeeld, opnieuw"
+  }
+]

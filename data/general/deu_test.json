@@ -1,0 +1,23 @@
+[
+    {
+        "language": "German",
+        "language_tag": "deu-de",
+        "source": "web",
+        "id": 1,
+        "text": "Ich bin ein Webtext"
+      },
+      {
+        "language": "German",
+        "language_tag": "deu-de",
+        "source": "news",
+        "id": 2,
+        "text": "Das ist ein Newsbeispiel"
+      },
+      {
+        "language": "German",
+        "language_tag": "deu-de",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Hier gibt es ein Wikipedia-Beispiel"
+      }
+]

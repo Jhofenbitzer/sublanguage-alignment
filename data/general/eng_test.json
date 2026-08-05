@@ -1,0 +1,22 @@
+[ {
+    "language": "English",
+    "language_tag": "eng-en",
+    "source": "web",
+    "id": 1,
+    "text": "I am a web text"
+  },
+  {
+    "language": "English",
+    "language_tag": "eng-en",
+    "source": "news",
+    "id": 2,
+    "text": "This is a news example"
+  },
+  {
+    "language": "English",
+    "language_tag": "eng-en",
+    "source": "wikipedia",
+    "id": 3,
+    "text": "Here is a Wikipedia example"
+  }
+]

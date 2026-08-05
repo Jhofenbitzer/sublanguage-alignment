@@ -1,0 +1,23 @@
+[
+    {
+        "language": "French",
+        "language_tag": "fra-fr",
+        "source": "web",
+        "id": 1,
+        "text": "Je suis un texte web"
+      },
+      {
+        "language": "French",
+        "language_tag": "fra-fr",
+        "source": "news",
+        "id": 2,
+        "text": "Ceci est un exemple d'actualité"
+      },
+      {
+        "language": "French",
+        "language_tag": "fra-fr",
+        "source": "wikipedia",
+        "id": 3,
+        "text": "Voici un exemple provenant de Wikipédia"
+      }
+]
