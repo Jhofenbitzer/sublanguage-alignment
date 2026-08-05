@@ -1,13 +1,6 @@
 # Biomedical synthesis pipeline
 
-These scripts reproduce the biomedical side of the synthesis workflow. They
-deliberately reject records marked `source: general`; general-domain files such
-as `data/general/deu_test.json` are outside this pipeline.
-
-The repository may contain short sample data, while the full language corpora
-remain external. Paths below are repository-relative examples. Do not write
-`/data/...` unless an absolute directory named `data` really exists at the
-filesystem root.
+These scripts synthesize the biomedical texts. The repository contains short sample data, while the full language corpora remain external. 
 
 ## Scripts and order
 
@@ -23,47 +16,20 @@ filesystem root.
 
 `common.py` contains dependency-free validation, naming, JSON, and seed helpers.
 
-## Outcome-critical historical choices
-
-- Truncation keeps `ceil(n_words * 0.30)` leading whitespace-delimited words,
-  with at least one word. Whitespace in `original` is normalized. The default
-  must remain `--fraction 0.30`.
-- The historical completion prompt says the prefix is "exactly one third" of
-  the original even though preprocessing used 30%. The prompt wording is kept
-  unchanged because changing a model prompt changes generated outcomes.
-- Upper-bound sampling uses seed 42 and the original per-filename SHA-256 seed
-  derivation.
-- Unigram learning uses seed 13 by default. It excludes both the real sample
-  and upper-bound sample before equalizing training-corpus sizes. Each
-  protected set must match the external learning corpus at 100% coverage by
-  default.
-- The original BioGPT script accepted seed 42 but did not apply it. The two
-  original vLLM scripts were also unseeded. Therefore, previously generated
-  neural outputs cannot be reconstructed exactly from those scripts and seed
-  values alone. Preserve the experimental output files as authoritative
-  artifacts. The harmonized scripts seed new runs and record their settings.
-- The prompt-based generator retains the biomedical half of the historical
-  alternating-domain plan. `--total-records 540000` therefore emits 270,000
-  biomedical records (30,000 per language) with their original odd IDs such as
-  `gen_1`, `gen_3`, and so on.
-- Completion-based vLLM generation still stops at `.`, `!`, and `?`. Under
-  vLLM's default behavior the stop character is not included in output. This is
-  retained as historical behavior even though the prompt requests a period.
-
 ## Example commands
 
 Create the upper bound from an external corpus:
 
 ```bash
 python src/synthesis/create_upper_bound.py \
-  --input-dir /path/to/biomedical_per_language_0226 \
-  --original-sample-dir /path/to/biomedical_per_language_0226/downsampled_30k \
-  --output-dir /path/to/biomedical_per_language_0226/downsampled_30k_second \
+  --input-dir /path/to/large_biomedical_corpus \
+  --original-sample-dir /path/to/authentic_biomedical_downsampled_corpus \
+  --output-dir /path/to/biomedical_upperbound \
   --sample-size 30000 \
   --seed 42
 ```
 
-Create 30% prefixes from repository sample files:
+Create prefixes from repository sample files:
 
 ```bash
 python src/synthesis/truncate_samples.py \
@@ -72,7 +38,7 @@ python src/synthesis/truncate_samples.py \
   --fraction 0.30
 ```
 
-Run the unigram baseline while protecting both experimental sets:
+Run the unigram baseline:
 
 ```bash
 python src/synthesis/generate_unigram.py \
@@ -115,9 +81,7 @@ python src/synthesis/generate_completion_based.py \
   --seed 42
 ```
 
-Omitting `--model` from the completion command uses the full historical model
-list. GPU assignment should normally be controlled by the scheduler through
-`CUDA_VISIBLE_DEVICES`.
+Omitting `--model` from the completion command uses the full model list. GPU assignment should normally be controlled by the scheduler through `CUDA_VISIBLE_DEVICES`.
 
 ## Environment and verification
 
@@ -128,9 +92,6 @@ runtime:
 - BioGPT: `torch`, `transformers`, `tqdm`, and the model files.
 - vLLM generators: `torch`, `vllm`, `transformers`, and the model files.
 
-Exact package versions, CUDA libraries, model revisions, and hardware should
-be archived with the experimental run. Model IDs alone do not pin a Hugging
-Face repository revision.
 
 Run dependency-free checks with:
 
