@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""Complete biomedical prefixes with Microsoft BioGPT-Large.
+"""
+Complete biomedical prefixes with Microsoft BioGPT-Large.
 
-The historical generation settings are retained: seed 42, temperature 1.0,
-top-p 0.9, 96 maximum new tokens, and right padding. The original submitted
-script accepted the seed but did not apply it; this version initializes the
-generation RNG and records all relevant settings in every output record.
 """
 
 from __future__ import annotations
