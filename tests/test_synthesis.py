@@ -22,7 +22,7 @@ from src.synthesis.truncate_samples import truncate_by_fraction
 
 
 class SynthesisTests(unittest.TestCase):
-    def test_historical_truncation_keeps_30_percent_rounded_up(self) -> None:
+    def test_trunction_keeps_30_percent_rounded_up(self) -> None:
         text = "one two three four five six seven eight nine ten eleven"
         self.assertEqual(truncate_by_fraction(text, 0.30, 1), "one two three four")
 
@@ -49,7 +49,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertFalse({item["id"] for item in first} & {item["id"] for item in original})
 
-    def test_prompt_plan_preserves_only_historical_biomedical_ids(self) -> None:
+    def test_prompt_plan_preserves_only_biomedical_ids(self) -> None:
         plan = build_generation_plan(540_000)
         self.assertEqual(len(plan), 270_000)
         self.assertEqual(plan[0], {"id": "gen_1", "language": "English", "source": "biomedical"})
