@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Create the second, disjoint biomedical sample used as the upper bound.
+"""
+Create the second, disjoint biomedical sample used as the upper bound.
 
-The full language corpora are external and are not expected to be stored in
-the repository. For every top-level ``biomedical_*.json`` file, this script
-excludes IDs in the corresponding original sample and draws a second sample
-without replacement. The historical defaults are 30,000 records and seed 42.
+The full language corpora are external and are not expected to be stored in the repository. For every top-level ``biomedical_*.json`` file, this script excludes IDs in the corresponding original sample and draws a second sample without replacement. The historical defaults are 30,000 records and seed 42.
 """
 
 from __future__ import annotations
