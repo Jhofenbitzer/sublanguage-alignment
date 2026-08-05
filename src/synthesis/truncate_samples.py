@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""Create 30%-length prefixes from biomedical sample files.
-
-The historical preprocessing normalized whitespace and retained
-``ceil(number_of_words * 0.30)`` whitespace-delimited words, with at least one
-word. Those choices are preserved because the resulting prefixes are part of
-the experimental data contract.
+"""
+Create 30%-length prefixes from biomedical sample files.
 """
 
 from __future__ import annotations
@@ -27,12 +23,12 @@ LOGGER = logging.getLogger(__name__)
 
 
 def normalize_whitespace(text: str) -> str:
-    """Reproduce the whitespace normalization used for the experiment."""
+    """Whitespace normalization."""
     return " ".join(text.strip().split())
 
 
 def truncate_by_fraction(text: str, fraction: float, min_keep: int) -> str:
-    """Keep the leading ceil(fraction * n) whitespace-delimited words."""
+    """Leading ceil(fraction * n) whitespace-delimited words."""
     normalized = normalize_whitespace(text)
     if not normalized:
         return ""
@@ -119,7 +115,7 @@ def parse_args() -> argparse.Namespace:
         "--fraction",
         type=float,
         default=0.30,
-        help="Fraction of whitespace-delimited words to keep (historical default: 0.30).",
+        help="Fraction of whitespace-delimited words to keep (default: 0.30).",
     )
     parser.add_argument("--min-keep", "--min_keep", dest="min_keep", type=int, default=1)
     parser.add_argument("--indent", type=int, default=2, help=argparse.SUPPRESS)
