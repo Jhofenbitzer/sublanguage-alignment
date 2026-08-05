@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Generate biomedical continuations from language-specific unigram models.
+"""
+Generate biomedical continuations from language-specific unigram models.
 
-The learning corpus excludes both protected evaluation sets before balancing
-languages: (1) the real experimental sample and (2) the upper-bound sample.
-The script verifies each exclusion set independently and refuses to run when
-matching coverage is below the requested threshold.
+The learning corpus excludes both protected evaluation sets before balancing languages: (1) the real experimental sample and (2) the upper-bound sample. The script verifies each exclusion set independently and refuses to run when matching coverage is below the requested threshold.
 """
 
 from __future__ import annotations
@@ -359,7 +357,7 @@ def resolve_language_key(item: Mapping[str, Any], available: Mapping[str, Any]) 
 
 
 def item_rng(seed: int, item: Mapping[str, Any], language: str) -> random.Random:
-    """Reproduce the original order-independent per-item seed derivation."""
+    """Order-independent per-item seed derivation."""
     return random.Random(
         stable_seed(seed, language, item.get("id", ""), item.get("truncated", ""))
     )
