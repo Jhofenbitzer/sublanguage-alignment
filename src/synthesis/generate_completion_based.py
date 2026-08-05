@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Complete truncated biomedical sentences with a collection of vLLM models.
+"""
+Complete truncated biomedical sentences with a collection of vLLM models.
 
-Inputs must be JSON arrays containing ``language``, ``language_tag``,
-``source``, ``id``, ``original``, and ``truncated``. Only records whose source
-is explicitly ``biomedical`` are accepted.
-
-The historical prompt says that the prefix is "exactly one third" of the
-original. The actual preprocessing retained 30% of whitespace-delimited words,
-rounded up. The prompt text is intentionally preserved because changing it
-would change model behavior; see the synthesis README for this discrepancy.
+Inputs must be JSON arrays containing ``language``, ``language_tag``, ``source``, ``id``, ``original``, and ``truncated``.
 """
 
 from __future__ import annotations
@@ -145,7 +139,7 @@ def clean_completion(
     item_id: str | None,
     model: ModelSpec,
 ) -> tuple[str, bool]:
-    """Apply the historical cleanup and report forced-prefix fallbacks."""
+    """Apply cleanup and report forced-prefix fallbacks."""
     if text is None:
         LOGGER.warning("Received no generation for item %s", item_id)
         return "", False
@@ -180,7 +174,7 @@ def clean_completion(
 
 
 def should_enforce_eager(model_id: str) -> bool:
-    """Preserve the Qwen3-Next CUDA-graph stability workaround."""
+    """Qwen3-Next CUDA-graph stability workaround."""
     return "qwen3-next" in model_id.casefold()
 
 
