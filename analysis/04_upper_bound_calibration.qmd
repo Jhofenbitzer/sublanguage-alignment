@@ -1,0 +1,1075 @@
+---
+title: "Upper-bound calibration of sublanguage alignment"
+author: "Justin Hofenbitzer"
+date: "2026-07-26"
+format:
+  html:
+    toc-depth: 2
+---
+
+# Purpose
+
+The upper bound is an independently sampled authentic biomedical corpus. It
+therefore provides two complementary calibration checks:
+
+1. against real general-language text, it should recover the authentic
+   biomedical divergence profile;
+2. against the authentic biomedical reference, it should exhibit little
+   residual divergence.
+
+The notebook focuses on the quantities needed to tell that story: feature
+recovery, effect and ranking agreement, residual discoveries in the
+biomedical--biomedical comparison, sampling stability, cluster recovery, and
+the paired RF variation used to diagnose the equivalence margin. The full model
+inventory and cross-language meta-cluster analysis remain in the main LLM
+notebook.
+
+# Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readr)
+library(stringr)
+library(tibble)
+library(ggplot2)
+
+source(file.path("analysis", "helpers.R"))
+
+options(
+  tibble.print_max = 50,
+  tibble.width = Inf,
+  dplyr.summarise.inform = FALSE
+)
+
+theme_set(theme_minimal(base_size = 12))
+```
+
+```{r configuration}
+paths <- analysis_paths()
+results_root <- paths$univariate_results
+
+real_dir <- file.path(results_root, "real")
+upper_dir <- file.path(results_root, "upper_bound")
+upper_null_dir <- file.path(
+  upper_dir,
+  "real_biomedical_vs_biomedical"
+)
+
+rf_output_root <- paths$multivariate_results
+upper_rf_dir <- file.path(rf_output_root, "upper_bound")
+rf_calibration_probability <- 0.95
+rf_prespecified_margin <- 0.05
+rf_chance <- 0.50
+
+derived_dir <- file.path(paths$derived, "upper_bound")
+dir.create(derived_dir, recursive = TRUE, showWarnings = FALSE)
+
+alpha <- 0.05
+cluster_match_threshold <- 0.50
+
+# Thresholds for the equal-size resampling diagnostics.
+min_iteration_coverage <- 0.95
+min_direction_agreement <- 0.90
+min_top_k_rate <- 0.80
+```
+
+# Load the three required comparisons
+
+```{r helpers}
+read_result <- function(directory, stem, required = TRUE) {
+  path <- file.path(directory, paste0(stem, ".rds"))
+  if (!file.exists(path)) {
+    if (required) stop("Required result is missing: ", path)
+    return(tibble())
+  }
+  as_tibble(readRDS(path))
+}
+
+safe_ratio <- function(numerator, denominator) {
+  ifelse(denominator > 0, numerator / denominator, NA_real_)
+}
+
+safe_f1 <- function(precision, recall) {
+  ifelse(
+    is.finite(precision) & is.finite(recall) & precision + recall > 0,
+    2 * precision * recall / (precision + recall),
+    0
+  )
+}
+
+safe_mean <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  mean(x)
+}
+
+safe_median <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  median(x)
+}
+
+safe_max <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  max(x)
+}
+
+safe_spearman <- function(x, y, min_n = 3L) {
+  keep <- is.finite(x) & is.finite(y)
+  if (sum(keep) < min_n) return(NA_real_)
+  suppressWarnings(cor(x[keep], y[keep], method = "spearman"))
+}
+
+safe_quantile <- function(x, probability) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  unname(quantile(x, probability, names = FALSE, type = 8))
+}
+
+clean_scores <- function(x, object_name) {
+  required <- c(
+    "language", "feature", "cohens_d", "delta_z",
+    "borda_score", "q_perm"
+  )
+  require_columns(x, required, object_name)
+
+  x %>%
+    transmute(
+      language = as.character(language),
+      feature = as.character(feature),
+      cohens_d,
+      delta_z,
+      borda_score,
+      q_perm
+    ) %>%
+    distinct(language, feature, .keep_all = TRUE)
+}
+
+split_members <- function(x) {
+  if (length(x) == 0 || is.na(x) || !nzchar(x)) return(character())
+  str_split(as.character(x), ",\\s*")[[1]] %>%
+    str_trim() %>%
+    discard(~ !nzchar(.x)) %>%
+    unique()
+}
+
+jaccard <- function(a, b) {
+  union_ab <- union(a, b)
+  if (length(union_ab) == 0) return(NA_real_)
+  length(intersect(a, b)) / length(union_ab)
+}
+```
+
+```{r load-results}
+# Authentic calibration target:
+# real general versus the original real biomedical sample.
+real_primary <- read_result(real_dir, "per_lang_scores") %>%
+  clean_scores("real/per_lang_scores")
+
+# Upper-bound recovery check:
+# real general versus an independent real biomedical sample.
+upper_primary <- read_result(upper_dir, "per_lang_scores") %>%
+  clean_scores("upper_bound/per_lang_scores")
+
+# Upper-bound noise-floor check:
+# original real biomedical versus independent real biomedical.
+upper_null <- read_result(upper_null_dir, "per_lang_scores") %>%
+  clean_scores("upper_bound/real_biomedical_vs_biomedical/per_lang_scores")
+
+input_inventory <- tibble(
+  comparison = c(
+    "authentic domain contrast",
+    "upper-bound domain contrast",
+    "upper-bound biomedical--biomedical control"
+  ),
+  n_languages = c(
+    n_distinct(real_primary$language),
+    n_distinct(upper_primary$language),
+    n_distinct(upper_null$language)
+  ),
+  n_language_features = c(
+    nrow(real_primary),
+    nrow(upper_primary),
+    nrow(upper_null)
+  )
+)
+
+input_inventory
+```
+
+# 1. Recovery of the authentic feature profile
+
+The primary calibration question is whether the independent authentic
+biomedical sample reproduces the significant features, their directions, and
+the broader ordering of feature divergence.
+
+```{r feature-profile-agreement}
+feature_comparison <- full_join(
+  real_primary %>%
+    rename_with(
+      ~ paste0("real_", .x),
+      -c(language, feature)
+    ),
+  upper_primary %>%
+    rename_with(
+      ~ paste0("upper_", .x),
+      -c(language, feature)
+    ),
+  by = c("language", "feature")
+) %>%
+  mutate(
+    real_significant =
+      is.finite(real_q_perm) & real_q_perm <= alpha,
+    upper_significant =
+      is.finite(upper_q_perm) & upper_q_perm <= alpha,
+    recovered = real_significant & upper_significant,
+    direction_agrees = case_when(
+      !recovered ~ NA,
+      !is.finite(real_delta_z) | !is.finite(upper_delta_z) ~ NA,
+      TRUE ~ sign(real_delta_z) == sign(upper_delta_z)
+    )
+  )
+
+feature_recovery <- feature_comparison %>%
+  group_by(language) %>%
+  summarise(
+    n_common_features = sum(
+      is.finite(real_cohens_d) & is.finite(upper_cohens_d)
+    ),
+    n_authentic_significant = sum(real_significant),
+    n_upper_significant = sum(upper_significant),
+    n_recovered = sum(recovered),
+    recall = safe_ratio(n_recovered, n_authentic_significant),
+    precision = safe_ratio(n_recovered, n_upper_significant),
+    f1 = safe_f1(precision, recall),
+    direction_agreement = safe_mean(direction_agrees[recovered]),
+    rho_signed_cohens_d =
+      safe_spearman(real_cohens_d, upper_cohens_d),
+    rho_borda =
+      safe_spearman(real_borda_score, upper_borda_score),
+    median_absolute_d_difference =
+      safe_median(abs(real_cohens_d - upper_cohens_d)),
+    .groups = "drop"
+  ) %>%
+  arrange(language)
+
+feature_recovery
+```
+
+The recovery measures answer distinct questions. Recall measures how much of
+the authentic inventory reappears; precision penalizes upper-bound-only
+discoveries; direction agreement checks whether recovered features change in
+the same direction. Correlations are calculated over all jointly available
+features and therefore describe the complete divergence profile rather than
+only the significant subset.
+
+# 2. Residual divergence between authentic biomedical samples
+
+The biomedical--biomedical comparison estimates the empirical noise floor.
+The important result is not that every feature difference is exactly zero, but
+whether adjusted discoveries are rare and effect sizes are small relative to
+the authentic domain contrast.
+
+```{r biomedical-control}
+null_summary <- upper_null %>%
+  group_by(language) %>%
+  summarise(
+    n_features_tested = n_distinct(feature),
+    n_significant = sum(is.finite(q_perm) & q_perm <= alpha),
+    prop_significant = n_significant / n_features_tested,
+    median_absolute_d = safe_median(abs(cohens_d)),
+    q95_absolute_d = safe_quantile(abs(cohens_d), 0.95),
+    maximum_absolute_d = safe_max(abs(cohens_d)),
+    .groups = "drop"
+  ) %>%
+  arrange(language)
+
+null_summary
+```
+
+```{r contrast-strength-comparison}
+contrast_strength <- bind_rows(
+  real_primary %>%
+    mutate(comparison = "authentic domain contrast"),
+  upper_primary %>%
+    mutate(comparison = "upper-bound domain contrast"),
+  upper_null %>%
+    mutate(comparison = "biomedical--biomedical control")
+) %>%
+  group_by(comparison, language) %>%
+  summarise(
+    n_significant = sum(is.finite(q_perm) & q_perm <= alpha),
+    prop_significant = mean(is.finite(q_perm) & q_perm <= alpha),
+    median_absolute_d = safe_median(abs(cohens_d)),
+    q95_absolute_d = safe_quantile(abs(cohens_d), 0.95),
+    .groups = "drop"
+  )
+
+contrast_strength
+```
+
+# 3. Equal-size resampling stability
+
+This is a diagnostic rather than an additional significance filter. It checks
+that upper-bound recovery is not driven by a particular equal-size sample and
+that any discoveries in the biomedical--biomedical control are not persistent.
+
+```{r stability}
+summarize_stability <- function(directory, comparison) {
+  feature_stability <- read_result(
+    directory,
+    "balanced_stability_feature_summary",
+    required = FALSE
+  )
+  rank_stability <- read_result(
+    directory,
+    "balanced_stability_rank_summary",
+    required = FALSE
+  )
+
+  feature_required <- c(
+    "language", "feature", "full_q_perm", "iteration_coverage",
+    "delta_sign_agreement", "top_k_rate"
+  )
+
+  feature_summary <- if (
+    nrow(feature_stability) > 0 &&
+      all(feature_required %in% names(feature_stability))
+  ) {
+    feature_stability %>%
+      mutate(
+        full_significant =
+          is.finite(full_q_perm) & full_q_perm <= alpha,
+        stable =
+          is.finite(iteration_coverage) &
+          iteration_coverage >= min_iteration_coverage &
+          is.finite(delta_sign_agreement) &
+          delta_sign_agreement >= min_direction_agreement &
+          is.finite(top_k_rate) &
+          top_k_rate >= min_top_k_rate
+      ) %>%
+      group_by(language) %>%
+      summarise(
+        n_full_significant = sum(full_significant),
+        n_significant_and_stable =
+          sum(full_significant & stable),
+        prop_significant_stable = safe_ratio(
+          n_significant_and_stable,
+          n_full_significant
+        ),
+        .groups = "drop"
+      )
+  } else {
+    tibble(
+      language = character(),
+      n_full_significant = integer(),
+      n_significant_and_stable = integer(),
+      prop_significant_stable = double()
+    )
+  }
+
+  rank_summary <- if (
+    nrow(rank_stability) > 0 &&
+      all(c("language", "median_spearman_rho") %in%
+          names(rank_stability))
+  ) {
+    rank_stability %>%
+      transmute(
+        language = as.character(language),
+        median_rank_stability = median_spearman_rho
+      ) %>%
+      distinct(language, .keep_all = TRUE)
+  } else {
+    tibble(
+      language = character(),
+      median_rank_stability = double()
+    )
+  }
+
+  full_join(feature_summary, rank_summary, by = "language") %>%
+    mutate(comparison = comparison, .before = 1)
+}
+
+stability_summary <- bind_rows(
+  summarize_stability(
+    upper_dir,
+    "upper-bound domain contrast"
+  ),
+  summarize_stability(
+    upper_null_dir,
+    "biomedical--biomedical control"
+  )
+)
+
+stability_summary
+```
+
+# 4. Recovery of correlated feature clusters
+
+Cluster recovery provides a compact higher-level check. Each authentic cluster
+is compared with its closest upper-bound cluster in the same language using
+member-feature Jaccard similarity. The threshold is used for this cluster
+matching only; it is unrelated to RF caching.
+
+```{r cluster-recovery}
+real_clusters <- read_result(real_dir, "cluster_fps", required = FALSE)
+upper_clusters <- read_result(upper_dir, "cluster_fps", required = FALSE)
+upper_null_clusters <- read_result(
+  upper_null_dir,
+  "cluster_fps",
+  required = FALSE
+)
+
+compare_clusters <- function(language) {
+  real_language <- real_clusters %>%
+    filter(as.character(.data$language) == .env$language) %>%
+    distinct(cluster_id, members, .keep_all = TRUE)
+  upper_language <- upper_clusters %>%
+    filter(as.character(.data$language) == .env$language) %>%
+    distinct(cluster_id, members, .keep_all = TRUE)
+
+  n_real <- nrow(real_language)
+  n_upper <- nrow(upper_language)
+
+  if (n_real == 0 || n_upper == 0) {
+    return(tibble(
+      language = language,
+      n_authentic_clusters = n_real,
+      n_upper_clusters = n_upper,
+      n_recovered = 0L,
+      recall = ifelse(n_real > 0, 0, NA_real_),
+      precision = ifelse(n_upper > 0, 0, NA_real_),
+      f1 = 0,
+      mean_best_jaccard = NA_real_
+    ))
+  }
+
+  pairwise <- expand_grid(
+    real_row = seq_len(n_real),
+    upper_row = seq_len(n_upper)
+  ) %>%
+    mutate(
+      similarity = map2_dbl(
+        real_row,
+        upper_row,
+        ~ jaccard(
+          split_members(real_language$members[[.x]]),
+          split_members(upper_language$members[[.y]])
+        )
+      )
+    )
+
+  best_for_real <- pairwise %>%
+    group_by(real_row) %>%
+    slice_max(similarity, n = 1, with_ties = FALSE) %>%
+    ungroup()
+  best_for_upper <- pairwise %>%
+    group_by(upper_row) %>%
+    slice_max(similarity, n = 1, with_ties = FALSE) %>%
+    ungroup()
+
+  recovered <- sum(
+    best_for_real$similarity >= cluster_match_threshold,
+    na.rm = TRUE
+  )
+  upper_matching <- sum(
+    best_for_upper$similarity >= cluster_match_threshold,
+    na.rm = TRUE
+  )
+  recall <- recovered / n_real
+  precision <- upper_matching / n_upper
+
+  tibble(
+    language = language,
+    n_authentic_clusters = n_real,
+    n_upper_clusters = n_upper,
+    n_recovered = recovered,
+    recall = recall,
+    precision = precision,
+    f1 = safe_f1(precision, recall),
+    mean_best_jaccard = safe_mean(best_for_real$similarity)
+  )
+}
+
+cluster_required <- c("language", "cluster_id", "members")
+if (
+  all(cluster_required %in% names(real_clusters)) &&
+    all(cluster_required %in% names(upper_clusters))
+) {
+  cluster_recovery <- map_dfr(
+    sort(unique(as.character(real_clusters$language))),
+    compare_clusters
+  )
+} else {
+  cluster_recovery <- tibble(
+    language = character(),
+    n_authentic_clusters = integer(),
+    n_upper_clusters = integer(),
+    n_recovered = integer(),
+    recall = double(),
+    precision = double(),
+    f1 = double(),
+    mean_best_jaccard = double()
+  )
+}
+
+null_cluster_summary <- if (
+  all(c("language", "cluster_id") %in% names(upper_null_clusters))
+) {
+  upper_null_clusters %>%
+    count(language, name = "n_residual_clusters")
+} else {
+  tibble()
+}
+
+cluster_recovery
+null_cluster_summary
+```
+
+# 5. Multivariate upper-bound calibration
+
+For the RF analysis, forest repetitions fitted to the same cross-validation
+split are first averaged within fold. The empirical margin is then the selected
+quantile of the absolute paired upper-bound differences:
+
+$$
+\widehat{\delta}_{\mathrm{cal}}
+=
+Q_{0.95}
+\left(
+\left|
+M_{\mathrm{RF}}^{\mathrm{upper}}
+-
+M_{\mathrm{RF}}^{\mathrm{real}}
+\right|
+\right).
+$$
+
+This value diagnoses the resolution of the procedure. It does not by itself
+make a larger difference substantively acceptable.
+
+```{r rf-margin-calibration}
+rf_language_raw <- read_result(
+  upper_rf_dir,
+  "rf_paired_real_generated_lang_raw"
+)
+
+if (!"delta_bal_acc" %in% names(rf_language_raw)) {
+  require_columns(
+    rf_language_raw,
+    c("real_bal_acc", "generated_bal_acc"),
+    "paired RF language output"
+  )
+  rf_language_raw <- rf_language_raw %>%
+    mutate(delta_bal_acc = generated_bal_acc - real_bal_acc)
+}
+require_columns(
+  rf_language_raw,
+  c(
+    "language", "fold", "real_bal_acc",
+    "generated_bal_acc", "delta_bal_acc"
+  ),
+  "paired RF language output"
+)
+
+rf_fold_units <- rf_language_raw %>%
+  group_by(language, fold) %>%
+  summarise(
+    real_bal_acc = safe_mean(real_bal_acc),
+    upper_bal_acc = safe_mean(generated_bal_acc),
+    delta = safe_mean(delta_bal_acc),
+    n_forest_fits = n(),
+    .groups = "drop"
+  )
+
+rf_margin_calibration <- tibble(
+  n_fold_units = sum(is.finite(rf_fold_units$delta)),
+  mean_delta = safe_mean(rf_fold_units$delta),
+  median_absolute_delta = safe_median(abs(rf_fold_units$delta)),
+  margin_q90 = safe_quantile(abs(rf_fold_units$delta), 0.90),
+  margin_q95 = safe_quantile(abs(rf_fold_units$delta), 0.95),
+  maximum_absolute_delta = safe_max(abs(rf_fold_units$delta)),
+  prespecified_margin = rf_prespecified_margin
+) %>%
+  mutate(
+    selected_margin = if (
+      rf_calibration_probability == 0.95
+    ) margin_q95 else safe_quantile(
+      abs(rf_fold_units$delta),
+      rf_calibration_probability
+    ),
+    prespecified_margin_covers_upper_variation =
+      selected_margin <= prespecified_margin
+  )
+
+rf_margin <- rf_margin_calibration$selected_margin[[1]]
+rf_margin_calibration
+```
+
+```{r rf-language-diagnostic}
+rf_language_summary <- rf_fold_units %>%
+  group_by(language) %>%
+  summarise(
+    n_folds = sum(is.finite(delta)),
+    mean_real_bal_acc = safe_mean(real_bal_acc),
+    mean_upper_bal_acc = safe_mean(upper_bal_acc),
+    delta = safe_mean(delta),
+    delta_lo = safe_quantile(delta, 0.025),
+    delta_hi = safe_quantile(delta, 0.975),
+    retention = ifelse(
+      mean_real_bal_acc > rf_chance,
+      (mean_upper_bal_acc - rf_chance) /
+        (mean_real_bal_acc - rf_chance),
+      NA_real_
+    ),
+    .groups = "drop"
+  )
+
+# Calibrate on all other languages before evaluating each held-out language.
+rf_loo_margins <- map_dfr(
+  sort(unique(rf_fold_units$language)),
+  function(held_out_language) {
+    calibration_delta <- rf_fold_units %>%
+      filter(language != held_out_language) %>%
+      pull(delta)
+
+    tibble(
+      language = held_out_language,
+      equivalence_margin = safe_quantile(
+        abs(calibration_delta),
+        rf_calibration_probability
+      )
+    )
+  }
+)
+
+rf_language_diagnostic <- rf_language_summary %>%
+  left_join(rf_loo_margins, by = "language") %>%
+  mutate(
+    interval_status = case_when(
+      mean_real_bal_acc <= rf_chance ~
+        "baseline not established",
+      delta_lo >= -equivalence_margin &
+        delta_hi <= equivalence_margin ~
+        "equivalent",
+      delta_hi < -equivalence_margin ~
+        "attenuated",
+      delta_lo > equivalence_margin ~
+        "exaggerated",
+      TRUE ~
+        "equivalence not established"
+    )
+  )
+
+rf_language_diagnostic
+```
+
+A margin estimated and evaluated on the same observations will tend to look
+successful. The leave-one-language-out diagnostic above is therefore the more
+informative check of whether the calibrated resolution generalizes across
+languages.
+
+```{r rf-four-layer-overview}
+normalize_rf_summary <- function(x, layer) {
+  required <- c(
+    "mean_real_bal_acc", "mean_generated_bal_acc",
+    "mean_delta_bal_acc", "delta_lo", "delta_hi"
+  )
+  require_columns(x, required, paste0(layer, " RF summary"))
+
+  unit <- if ("language" %in% names(x)) {
+    as.character(x$language)
+  } else if ("heldout_language" %in% names(x)) {
+    as.character(x$heldout_language)
+  } else if (
+    all(c("source_language", "target_language") %in% names(x))
+  ) {
+    paste(x$source_language, x$target_language, sep = " -> ")
+  } else {
+    rep("pooled", nrow(x))
+  }
+
+  tibble(
+    layer = layer,
+    unit = unit,
+    mean_real_bal_acc = x$mean_real_bal_acc,
+    mean_upper_bal_acc = x$mean_generated_bal_acc,
+    delta = x$mean_delta_bal_acc,
+    delta_lo = x$delta_lo,
+    delta_hi = x$delta_hi
+  )
+}
+
+rf_layer_spec <- tribble(
+  ~layer, ~file,
+  "within-language", "rf_paired_real_generated_lang",
+  "pooled", "rf_paired_real_generated_agnostic",
+  "language-agnostic transfer", "rf_paired_real_generated_lolo",
+  "directed transfer", "rf_paired_real_generated_transfer"
+)
+
+rf_layer_results <- map2_dfr(
+  rf_layer_spec$file,
+  rf_layer_spec$layer,
+  ~ normalize_rf_summary(
+    read_result(upper_rf_dir, .x),
+    .y
+  )
+) %>%
+  mutate(
+    interval_status = case_when(
+      mean_real_bal_acc <= rf_chance ~
+        "baseline not established",
+      delta_lo >= -rf_margin & delta_hi <= rf_margin ~
+        "within calibrated margin",
+      delta_hi < -rf_margin ~
+        "attenuated",
+      delta_lo > rf_margin ~
+        "exaggerated",
+      TRUE ~
+        "inconclusive"
+    )
+  )
+
+rf_layer_overview <- rf_layer_results %>%
+  group_by(layer) %>%
+  summarise(
+    n_units = n(),
+    median_delta = safe_median(delta),
+    q95_absolute_delta = safe_quantile(abs(delta), 0.95),
+    n_within_margin =
+      sum(interval_status == "within calibrated margin"),
+    prop_within_margin =
+      mean(interval_status == "within calibrated margin"),
+    n_attenuated = sum(interval_status == "attenuated"),
+    n_exaggerated = sum(interval_status == "exaggerated"),
+    n_inconclusive = sum(interval_status == "inconclusive"),
+    .groups = "drop"
+  )
+
+rf_layer_overview
+```
+
+```{r rf-calibration-figure}
+rf_calibration_plot <- ggplot(
+  rf_language_diagnostic %>%
+    mutate(
+      language = factor(
+        language,
+        levels = rev(sort(unique(as.character(language))))
+      )
+    ),
+  aes(x = delta, y = language, colour = interval_status)
+) +
+  geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.4) +
+  geom_vline(
+    xintercept = c(-rf_margin, rf_margin),
+    colour = "#B22222",
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_segment(
+    aes(x = delta_lo, xend = delta_hi, yend = language),
+    linewidth = 0.8
+  ) +
+  geom_point(size = 2.5) +
+  labs(
+    x = expression(Delta[RF] == BA[upper] - BA[real]),
+    y = NULL,
+    colour = NULL,
+    title = "Upper-bound RF calibration",
+    subtitle = paste0(
+      "Global empirical margin: ±",
+      sprintf("%.3f", rf_margin),
+      "; status uses leave-one-language-out margins"
+    )
+  ) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+rf_calibration_plot
+```
+
+# Paper-facing summary
+
+The main paper needs one compact table and one calibration figure. Detailed
+feature lists, stability classifications, and effect-profile plots are better
+placed in the appendix.
+
+```{r paper-summary}
+paper_summary <- tibble(
+  n_languages = nrow(feature_recovery),
+  median_feature_recall = safe_median(feature_recovery$recall),
+  median_feature_precision = safe_median(feature_recovery$precision),
+  median_feature_f1 = safe_median(feature_recovery$f1),
+  median_direction_agreement =
+    safe_median(feature_recovery$direction_agreement),
+  median_effect_profile_rho =
+    safe_median(feature_recovery$rho_signed_cohens_d),
+  median_rank_profile_rho =
+    safe_median(feature_recovery$rho_borda),
+  total_null_significant = sum(null_summary$n_significant),
+  median_null_significant_share =
+    safe_median(null_summary$prop_significant),
+  median_null_absolute_d =
+    safe_median(null_summary$median_absolute_d),
+  median_cluster_f1 = if (nrow(cluster_recovery) > 0) {
+    safe_median(cluster_recovery$f1)
+  } else {
+    NA_real_
+  },
+  rf_calibrated_margin = rf_margin,
+  rf_prespecified_margin = rf_prespecified_margin,
+  rf_heldout_languages_equivalent = sum(
+    rf_language_diagnostic$interval_status == "equivalent"
+  ),
+  rf_heldout_languages_total = nrow(rf_language_diagnostic)
+)
+
+paper_summary
+```
+
+```{r paper-calibration-table}
+calibration_by_language <- feature_recovery %>%
+  select(
+    language,
+    feature_recall = recall,
+    feature_precision = precision,
+    feature_f1 = f1,
+    direction_agreement,
+    effect_rho = rho_signed_cohens_d,
+    rank_rho = rho_borda
+  ) %>%
+  left_join(
+    null_summary %>%
+      select(
+        language,
+        null_significant = n_significant,
+        null_significant_share = prop_significant,
+        null_median_absolute_d = median_absolute_d
+      ),
+    by = "language"
+  ) %>%
+  left_join(
+    cluster_recovery %>%
+      select(language, cluster_f1 = f1),
+    by = "language"
+  ) %>%
+  left_join(
+    rf_language_diagnostic %>%
+      select(
+        language,
+        rf_real_bal_acc = mean_real_bal_acc,
+        rf_upper_bal_acc = mean_upper_bal_acc,
+        rf_delta = delta,
+        rf_interval_status = interval_status
+      ),
+    by = "language"
+  ) %>%
+  arrange(language)
+
+knitr::kable(
+  calibration_by_language,
+  digits = 3,
+  caption = paste(
+    "Upper-bound recovery of the authentic domain contrast and residual",
+    "divergence in the biomedical--biomedical control."
+  )
+)
+```
+
+```{r calibration-figure}
+calibration_plot_data <- bind_rows(
+  feature_recovery %>%
+    transmute(
+      language,
+      diagnostic = "Feature recovery (F1)",
+      value = f1
+    ),
+  cluster_recovery %>%
+    transmute(
+      language,
+      diagnostic = "Cluster recovery (F1)",
+      value = f1
+    ),
+  null_summary %>%
+    transmute(
+      language,
+      diagnostic = "Residual significant share",
+      value = prop_significant
+    )
+) %>%
+  mutate(
+    diagnostic = factor(
+      diagnostic,
+      levels = c(
+        "Feature recovery (F1)",
+        "Cluster recovery (F1)",
+        "Residual significant share"
+      )
+    ),
+    language = factor(
+      language,
+      levels = rev(sort(unique(as.character(language))))
+    )
+  )
+
+calibration_plot <- ggplot(
+  calibration_plot_data,
+  aes(x = value, y = language)
+) +
+  geom_vline(
+    xintercept = 0,
+    linewidth = 0.4,
+    colour = "grey70"
+  ) +
+  geom_point(size = 2.4, colour = "#2C6E9B") +
+  facet_wrap(~ diagnostic, nrow = 1) +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(
+    x = "Proportion",
+    y = NULL,
+    title = "Upper-bound calibration by language",
+    caption = paste(
+      "Higher recovery is desirable in the first two panels;",
+      "lower residual divergence is desirable in the third."
+    )
+  ) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+calibration_plot
+```
+
+```{r effect-profile-figure}
+effect_plot <- feature_comparison %>%
+  filter(
+    is.finite(real_cohens_d),
+    is.finite(upper_cohens_d)
+  ) %>%
+  ggplot(aes(x = real_cohens_d, y = upper_cohens_d)) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    colour = "grey55",
+    linetype = "dashed"
+  ) +
+  geom_point(alpha = 0.40, size = 1.1, colour = "#2C6E9B") +
+  facet_wrap(~ language, scales = "free") +
+  labs(
+    x = "Authentic contrast: Cohen's d",
+    y = "Upper-bound contrast: Cohen's d",
+    title = "Agreement of authentic and upper-bound feature effects"
+  ) +
+  theme(panel.grid.minor = element_blank())
+
+effect_plot
+```
+
+```{r paper-result-sentence, results='asis'}
+result_sentence <- paste0(
+  "Across languages, the upper-bound condition achieved a median feature ",
+  "recovery F1 of ",
+  sprintf("%.2f", paper_summary$median_feature_f1),
+  ", with median direction agreement of ",
+  sprintf("%.1f%%", 100 * paper_summary$median_direction_agreement),
+  " and a median signed-effect correlation of ",
+  sprintf("%.2f", paper_summary$median_effect_profile_rho),
+  ". In the authentic biomedical--biomedical control, ",
+  paper_summary$total_null_significant,
+  " adjusted feature discoveries remained in total (median language-wise ",
+  "share ",
+  sprintf("%.2f%%", 100 * paper_summary$median_null_significant_share),
+  "). The paired RF upper-bound differences yielded an empirical 95% margin ",
+  "of ±",
+  sprintf("%.3f", paper_summary$rf_calibrated_margin),
+  "; leave-one-language-out calibration classified ",
+  paper_summary$rf_heldout_languages_equivalent,
+  " of ",
+  paper_summary$rf_heldout_languages_total,
+  " languages as equivalent."
+)
+
+cat(result_sentence)
+```
+
+# Save derived outputs
+
+```{r save-results}
+write_csv(
+  paper_summary,
+  file.path(derived_dir, "upper_bound_paper_summary.csv")
+)
+write_csv(
+  calibration_by_language,
+  file.path(derived_dir, "upper_bound_calibration_by_language.csv")
+)
+write_csv(
+  feature_comparison,
+  file.path(derived_dir, "upper_bound_feature_comparison.csv")
+)
+write_csv(
+  stability_summary,
+  file.path(derived_dir, "upper_bound_stability_summary.csv")
+)
+write_csv(
+  rf_margin_calibration,
+  file.path(derived_dir, "upper_bound_rf_margin_calibration.csv")
+)
+write_csv(
+  rf_language_diagnostic,
+  file.path(derived_dir, "upper_bound_rf_language_diagnostic.csv")
+)
+write_csv(
+  rf_layer_results,
+  file.path(derived_dir, "upper_bound_rf_four_layers.csv")
+)
+
+ggsave(
+  file.path(derived_dir, "upper_bound_calibration_by_language.pdf"),
+  calibration_plot,
+  width = 10,
+  height = 5.5
+)
+ggsave(
+  file.path(derived_dir, "upper_bound_effect_profile.pdf"),
+  effect_plot,
+  width = 10,
+  height = 7
+)
+ggsave(
+  file.path(derived_dir, "upper_bound_rf_calibration.pdf"),
+  rf_calibration_plot,
+  width = 8,
+  height = 5.5
+)
+```
+
+# Interpretation
+
+The upper bound supports the calibration if it combines high recovery,
+directional and effect-profile agreement in the general--biomedical comparison
+with few, small, and preferably unstable discoveries in the
+biomedical--biomedical comparison. The RF difference should likewise remain
+small and generalize under leave-one-language-out calibration. A weak result on
+the first check indicates limited reproducibility of the authentic domain
+profile; a weak result on the second indicates sensitivity to ordinary
+authentic-sample variation. If the empirical RF variation exceeds the
+substantively prespecified margin, the conclusion is limited measurement
+resolution at that tolerance—not automatic permission to enlarge the
+acceptable margin.
