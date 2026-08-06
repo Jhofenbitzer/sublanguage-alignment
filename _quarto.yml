@@ -1,0 +1,21 @@
+project:
+  type: default
+  output-dir: outputs/reports
+  execute-dir: project
+  render:
+    - analysis/01_data_quality.qmd
+    - analysis/02_univariate_alignment.qmd
+    - analysis/03_multivariate_alignment.qmd
+    - analysis/04_upper_bound_calibration.qmd
+
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
