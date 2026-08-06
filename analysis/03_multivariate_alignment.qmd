@@ -1,0 +1,746 @@
+---
+title: "Within-language multivariate discriminability of biomedical model outputs"
+author: "Justin Hofenbitzer"
+date: "2026-07-28"
+format:
+  html:
+    toc-depth: 2
+---
+
+# Purpose
+
+This report evaluates whether generated texts reproduce the multivariate
+linguistic contrast that distinguishes authentic biomedical from authentic
+general language within each language. A random forest trained on authentic
+observations is evaluated on held-out authentic observations and on a target
+model's biomedical output.
+
+The primary estimand is
+
+\[
+\Delta_{\mathrm{RF}}
+=
+\mathrm{BA}_{\mathrm{generated}}
+-
+\mathrm{BA}_{\mathrm{authentic}}.
+\]
+
+A negative value indicates weaker discriminability in generated text; a
+positive value indicates stronger discriminability. The independent authentic
+upper bound is evaluated only in `04_upper_bound_calibration.qmd` and is
+excluded from this report.
+
+```{r mv-setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 7
+)
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(forcats)
+library(ggrepel)
+
+source(file.path("analysis", "helpers.R"))
+
+theme_set(theme_minimal(base_size = 12))
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r mv-configuration}
+paths <- analysis_paths()
+rf_result_root <- paths$multivariate_results
+
+chance_level <- 0.50
+descriptive_interval <- 0.95
+upper_bound_model_id <- "upper_bound"
+condition_order <- c(
+  "completion", "prompt", "unigram", "BioGPT", "other"
+)
+```
+
+```{r mv-functions}
+finite_mean <- function(values) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) NA_real_ else mean(values)
+}
+
+finite_median <- function(values) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) NA_real_ else median(values)
+}
+
+finite_min <- function(values) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) NA_real_ else min(values)
+}
+
+finite_max <- function(values) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) NA_real_ else max(values)
+}
+
+finite_sd <- function(values) {
+  values <- values[is.finite(values)]
+  if (length(values) < 2L) NA_real_ else sd(values)
+}
+
+finite_quantile <- function(values, probability) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) {
+    return(NA_real_)
+  }
+  unname(quantile(
+    values,
+    probs = probability,
+    names = FALSE,
+    na.rm = TRUE,
+    type = 8
+  ))
+}
+
+read_rf_table <- function(path_without_extension) {
+  rds_path <- paste0(path_without_extension, ".rds")
+  csv_path <- paste0(path_without_extension, ".csv")
+
+  if (file.exists(rds_path)) {
+    return(as_tibble(readRDS(rds_path)))
+  }
+  if (file.exists(csv_path)) {
+    return(read_csv(csv_path, show_col_types = FALSE))
+  }
+  NULL
+}
+
+discover_rf_table <- function(result_root, file_stem) {
+  if (!dir.exists(result_root)) {
+    stop("Random-forest result root does not exist: ", result_root)
+  }
+
+  model_directories <- list.dirs(
+    result_root,
+    recursive = FALSE,
+    full.names = TRUE
+  )
+
+  map_dfr(model_directories, function(model_directory) {
+    result <- read_rf_table(file.path(model_directory, file_stem))
+    if (is.null(result)) {
+      return(tibble())
+    }
+
+    result |>
+      mutate(analysis_model = basename(model_directory), .before = 1)
+  })
+}
+
+normalize_rf_identifiers <- function(data) {
+  if (!"generated_model_id" %in% names(data)) {
+    data <- data |>
+      mutate(generated_model_id = analysis_model)
+  }
+
+  data |>
+    mutate(
+      generated_model_id = coalesce(
+        as.character(generated_model_id),
+        analysis_model
+      ),
+      language = as.character(language)
+    )
+}
+
+add_rf_model_metadata <- function(data) {
+  model_id_lower <- tolower(as.character(data$generated_model_id))
+
+  data |>
+    mutate(
+      condition = case_when(
+        grepl("upper[_-]?bound", model_id_lower) ~ "upper bound",
+        grepl("biounigram|unigram", model_id_lower) ~ "unigram",
+        grepl("biogpt", model_id_lower) ~ "BioGPT",
+        grepl("_completion$", model_id_lower) ~ "completion",
+        grepl("_prompt$", model_id_lower) ~ "prompt",
+        TRUE ~ "other"
+      ),
+      base_model = sub(
+        "_(completion|prompt)$",
+        "",
+        as.character(generated_model_id)
+      )
+    )
+}
+
+collapse_forest_repetitions <- function(raw_results) {
+  if (!"delta_bal_acc" %in% names(raw_results)) {
+    raw_results <- raw_results |>
+      mutate(delta_bal_acc = generated_bal_acc - real_bal_acc)
+  }
+
+  require_columns(
+    raw_results,
+    c(
+      "analysis_model", "generated_model_id", "language", "fold",
+      "real_bal_acc", "generated_bal_acc", "delta_bal_acc"
+    ),
+    "Primary raw RF results"
+  )
+
+  raw_results |>
+    group_by(analysis_model, generated_model_id, language, fold) |>
+    summarise(
+      real_bal_acc = finite_mean(real_bal_acc),
+      generated_bal_acc = finite_mean(generated_bal_acc),
+      delta_bal_acc = finite_mean(delta_bal_acc),
+      n_forest_repetitions = n(),
+      .groups = "drop"
+    ) |>
+    add_rf_model_metadata()
+}
+
+summarise_primary_folds <- function(
+    fold_results,
+    interval = descriptive_interval
+) {
+  tail_probability <- (1 - interval) / 2
+
+  fold_results |>
+    group_by(
+      analysis_model,
+      generated_model_id,
+      condition,
+      base_model,
+      language
+    ) |>
+    summarise(
+      n_evaluation_folds = sum(is.finite(delta_bal_acc)),
+      mean_real_bal_acc = finite_mean(real_bal_acc),
+      mean_generated_bal_acc = finite_mean(generated_bal_acc),
+      mean_delta_bal_acc = finite_mean(delta_bal_acc),
+      mean_abs_delta_bal_acc = finite_mean(abs(delta_bal_acc)),
+      median_delta_bal_acc = finite_median(delta_bal_acc),
+      descriptive_delta_low = finite_quantile(
+        delta_bal_acc,
+        tail_probability
+      ),
+      descriptive_delta_high = finite_quantile(
+        delta_bal_acc,
+        1 - tail_probability
+      ),
+      .groups = "drop"
+    ) |>
+    mutate(
+      authentic_baseline_established =
+        is.finite(mean_real_bal_acc) & mean_real_bal_acc > chance_level,
+      retention_rf = if_else(
+        authentic_baseline_established,
+        (mean_generated_bal_acc - chance_level) /
+          (mean_real_bal_acc - chance_level),
+        NA_real_
+      )
+    )
+}
+```
+
+# Inputs and completeness
+
+```{r mv-load-primary}
+primary_folds <- discover_rf_table(
+  rf_result_root,
+  "rf_paired_real_generated_lang_raw"
+) |>
+  normalize_rf_identifiers() |>
+  collapse_forest_repetitions() |>
+  filter(condition != "upper bound")
+
+if (nrow(primary_folds) == 0L) {
+  stop(
+    "No non-upper-bound paired RF results were found below: ",
+    rf_result_root
+  )
+}
+
+primary_results <- summarise_primary_folds(primary_folds)
+```
+
+```{r mv-load-stability}
+stability_results <- discover_rf_table(
+  rf_result_root,
+  "rf_paired_lang_balanced_refit_stability"
+) |>
+  normalize_rf_identifiers() |>
+  add_rf_model_metadata() |>
+  filter(condition != "upper bound")
+
+require_columns(
+  stability_results,
+  c(
+    "analysis_model", "generated_model_id", "language",
+    "n_iterations", "n_estimable_iterations", "iteration_coverage",
+    "median_delta_bal_acc", "delta_q25", "delta_q75",
+    "descriptive_delta_lo", "descriptive_delta_hi",
+    "delta_sign_agreement"
+  ),
+  "Balanced-refit stability results"
+)
+
+stability_selected <- stability_results |>
+  transmute(
+    analysis_model,
+    generated_model_id,
+    condition,
+    base_model,
+    language,
+    stability_n_iterations = n_iterations,
+    stability_n_estimable = n_estimable_iterations,
+    stability_iteration_coverage = iteration_coverage,
+    stability_mean_delta = mean_delta_bal_acc,
+    stability_median_delta = median_delta_bal_acc,
+    stability_delta_q25 = delta_q25,
+    stability_delta_q75 = delta_q75,
+    stability_descriptive_low = descriptive_delta_lo,
+    stability_descriptive_high = descriptive_delta_hi,
+    stability_direction_agreement = delta_sign_agreement
+  )
+
+combined_results <- primary_results |>
+  left_join(
+    stability_selected,
+    by = c(
+      "analysis_model",
+      "generated_model_id",
+      "condition",
+      "base_model",
+      "language"
+    )
+  ) |>
+  mutate(
+    primary_stability_difference =
+      stability_median_delta - mean_delta_bal_acc,
+    absolute_primary_stability_difference =
+      abs(primary_stability_difference)
+  )
+```
+
+```{r mv-completeness}
+expected_cells <- primary_results |>
+  distinct(analysis_model, generated_model_id, language)
+
+available_stability_cells <- stability_selected |>
+  distinct(analysis_model, generated_model_id, language)
+
+missing_stability <- expected_cells |>
+  anti_join(
+    available_stability_cells,
+    by = c("analysis_model", "generated_model_id", "language")
+  )
+
+completeness <- tibble(
+  n_models = n_distinct(primary_results$generated_model_id),
+  n_languages = n_distinct(primary_results$language),
+  n_primary_model_language_cells = nrow(expected_cells),
+  n_stability_model_language_cells = nrow(available_stability_cells),
+  n_missing_stability_cells = nrow(missing_stability),
+  minimum_planned_stability_iterations =
+    finite_min(stability_selected$stability_n_iterations),
+  minimum_estimable_stability_iterations =
+    finite_min(stability_selected$stability_n_estimable)
+)
+
+completeness
+missing_stability
+```
+
+# Authentic reference discriminability
+
+The generated-text contrast is interpretable only where the authentic
+held-out classifier distinguishes biomedical from general language above
+chance.
+
+```{r mv-authentic-reference}
+authentic_reference <- primary_results |>
+  group_by(language) |>
+  summarise(
+    n_target_models = n_distinct(generated_model_id),
+    mean_authentic_bal_acc = finite_mean(mean_real_bal_acc),
+    minimum_authentic_bal_acc = finite_min(mean_real_bal_acc),
+    maximum_authentic_bal_acc = finite_max(mean_real_bal_acc),
+    all_above_chance = all(mean_real_bal_acc > chance_level, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(language)
+
+authentic_reference_overall <- authentic_reference |>
+  summarise(
+    n_languages = n(),
+    minimum_language_mean_authentic_bal_acc =
+      finite_min(mean_authentic_bal_acc),
+    maximum_language_mean_authentic_bal_acc =
+      finite_max(mean_authentic_bal_acc),
+    all_languages_above_chance = all(all_above_chance)
+  )
+
+authentic_reference_overall
+authentic_reference
+```
+
+# Shared feature panel
+
+The authentic-trained classifiers use the same global feature panel. This
+audit checks the panel size across model and language tasks.
+
+```{r mv-feature-audit}
+feature_comparison <- discover_rf_table(
+  rf_result_root,
+  "rf_feature_set_comparison"
+)
+
+if (nrow(feature_comparison) > 0L) {
+  require_columns(
+    feature_comparison,
+    c(
+      "analysis_model", "language", "feature",
+      "used_by_authentic_shared_rf",
+      "used_by_target_model_specific_rf",
+      "rf_feature_sets_differ"
+    ),
+    "Feature-set comparison"
+  )
+
+  feature_audit <- feature_comparison |>
+    filter(analysis_model != upper_bound_model_id) |>
+    mutate(language = as.character(language)) |>
+    group_by(analysis_model, language) |>
+    summarise(
+      n_authentic_shared_features =
+        sum(used_by_authentic_shared_rf, na.rm = TRUE),
+      n_target_specific_features =
+        sum(used_by_target_model_specific_rf, na.rm = TRUE),
+      n_differing_features = sum(rf_feature_sets_differ, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  feature_panel_overview <- feature_audit |>
+    summarise(
+      minimum_shared_features = min(n_authentic_shared_features),
+      maximum_shared_features = max(n_authentic_shared_features),
+      n_distinct_shared_panel_sizes =
+        n_distinct(n_authentic_shared_features),
+      all_analyses_use_same_panel_size =
+        n_distinct_shared_panel_sizes == 1L
+    )
+
+  feature_panel_overview
+} else {
+  cat("No feature-panel audit files were available.")
+}
+```
+
+# Model results
+
+```{r mv-model-summary}
+condition_summary <- combined_results |>
+  group_by(condition) |>
+  summarise(
+    n_models = n_distinct(generated_model_id),
+    n_model_language_cells = n(),
+    mean_authentic_bal_acc = finite_mean(mean_real_bal_acc),
+    mean_generated_bal_acc = finite_mean(mean_generated_bal_acc),
+    mean_delta_bal_acc = finite_mean(mean_delta_bal_acc),
+    mean_abs_delta_bal_acc = finite_mean(mean_abs_delta_bal_acc),
+    mean_retention_rf = finite_mean(retention_rf),
+    mean_abs_primary_refit_difference =
+      finite_mean(absolute_primary_stability_difference),
+    .groups = "drop"
+  ) |>
+  mutate(condition = factor(condition, levels = condition_order)) |>
+  arrange(condition)
+
+model_summary <- combined_results |>
+  group_by(
+    analysis_model,
+    generated_model_id,
+    base_model,
+    condition
+  ) |>
+  summarise(
+    n_languages = n_distinct(language),
+    n_authentic_baselines_established =
+      sum(authentic_baseline_established, na.rm = TRUE),
+    mean_authentic_bal_acc = finite_mean(mean_real_bal_acc),
+    mean_generated_bal_acc = finite_mean(mean_generated_bal_acc),
+    mean_delta_bal_acc = finite_mean(mean_delta_bal_acc),
+    mean_abs_delta_bal_acc = finite_mean(mean_abs_delta_bal_acc),
+    mean_retention_rf = finite_mean(retention_rf),
+    mean_abs_primary_refit_difference =
+      finite_mean(absolute_primary_stability_difference),
+    mean_direction_agreement =
+      finite_mean(stability_direction_agreement),
+    .groups = "drop"
+  ) |>
+  mutate(model_id = generated_model_id) |>
+  add_model_readable() |>
+  arrange(
+    factor(condition, levels = condition_order),
+    mean_abs_delta_bal_acc,
+    generated_model_id
+  )
+
+condition_summary
+model_summary
+
+write_csv(
+  model_summary,
+  analysis_output_path(paths$tables, "multivariate_model_summary.csv")
+)
+```
+
+## Prompt and completion pairs
+
+```{r mv-paired-conditions}
+paired_model_comparison <- model_summary |>
+  filter(condition %in% c("completion", "prompt")) |>
+  select(
+    base_model,
+    condition,
+    mean_delta_bal_acc,
+    mean_abs_delta_bal_acc
+  ) |>
+  pivot_wider(
+    names_from = condition,
+    values_from = c(mean_delta_bal_acc, mean_abs_delta_bal_acc)
+  ) |>
+  filter(
+    is.finite(mean_abs_delta_bal_acc_completion),
+    is.finite(mean_abs_delta_bal_acc_prompt)
+  ) |>
+  mutate(
+    completion_advantage =
+      mean_abs_delta_bal_acc_prompt -
+        mean_abs_delta_bal_acc_completion,
+    closer_to_authentic = case_when(
+      completion_advantage > 0 ~ "completion",
+      completion_advantage < 0 ~ "prompt",
+      TRUE ~ "tie"
+    )
+  ) |>
+  arrange(desc(completion_advantage))
+
+paired_model_summary <- paired_model_comparison |>
+  summarise(
+    n_paired_model_families = n(),
+    n_completion_closer = sum(closer_to_authentic == "completion"),
+    n_prompt_closer = sum(closer_to_authentic == "prompt"),
+    n_ties = sum(closer_to_authentic == "tie"),
+    mean_completion_advantage = finite_mean(completion_advantage)
+  )
+
+paired_model_summary
+paired_model_comparison
+```
+
+## Language-level variation
+
+```{r mv-language-summary}
+language_condition_summary <- combined_results |>
+  group_by(language, condition) |>
+  summarise(
+    n_models = n_distinct(generated_model_id),
+    mean_authentic_bal_acc = finite_mean(mean_real_bal_acc),
+    mean_generated_bal_acc = finite_mean(mean_generated_bal_acc),
+    mean_delta_bal_acc = finite_mean(mean_delta_bal_acc),
+    mean_abs_delta_bal_acc = finite_mean(mean_abs_delta_bal_acc),
+    median_delta_bal_acc = finite_median(mean_delta_bal_acc),
+    delta_q25 = finite_quantile(mean_delta_bal_acc, 0.25),
+    delta_q75 = finite_quantile(mean_delta_bal_acc, 0.75),
+    .groups = "drop"
+  ) |>
+  mutate(condition = factor(condition, levels = condition_order)) |>
+  arrange(condition, language)
+
+language_condition_summary
+```
+
+# Visual summary
+
+```{r mv-heatmap, fig.width=10, fig.height=14}
+heatmap_data <- combined_results |>
+  mutate(model_id = generated_model_id) |>
+  add_model_readable() |>
+  mutate(model_readable = fct_rev(factor(model_readable)))
+
+multivariate_heatmap <- ggplot(
+  heatmap_data,
+  aes(x = language, y = model_readable, fill = mean_delta_bal_acc)
+) +
+  geom_tile(colour = "white", linewidth = 0.2) +
+  scale_fill_gradient2(
+    low = "#4169E1",
+    mid = "white",
+    high = "#B22222",
+    midpoint = 0,
+    name = expression(Delta[RF])
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "Within-language change in domain discriminability",
+    subtitle = "Generated minus held-out authentic balanced accuracy"
+  ) +
+  theme(panel.grid = element_blank(), legend.position = "bottom")
+
+multivariate_heatmap
+
+ggsave(
+  analysis_output_path(paths$figures, "multivariate_delta_heatmap.pdf"),
+  multivariate_heatmap,
+  width = 10,
+  height = 14
+)
+```
+
+```{r mv-heterogeneity, fig.width=11, fig.height=6}
+heterogeneity_summary <- combined_results |>
+  filter(condition %in% c("completion", "prompt")) |>
+  group_by(
+    analysis_model,
+    generated_model_id,
+    base_model,
+    condition
+  ) |>
+  summarise(
+    mean_delta = finite_mean(mean_delta_bal_acc),
+    sd_delta = finite_sd(mean_delta_bal_acc),
+    n_languages = sum(is.finite(mean_delta_bal_acc)),
+    .groups = "drop"
+  ) |>
+  group_by(condition) |>
+  mutate(
+    label = if_else(
+      min_rank(desc(abs(mean_delta))) <= 5L |
+        min_rank(desc(sd_delta)) <= 5L,
+      base_model,
+      ""
+    )
+  ) |>
+  ungroup()
+
+heterogeneity_plot <- ggplot(
+  heterogeneity_summary,
+  aes(x = mean_delta, y = sd_delta)
+) +
+  geom_vline(
+    xintercept = 0,
+    colour = "grey50",
+    linewidth = 0.5,
+    linetype = "dashed"
+  ) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  geom_text_repel(
+    aes(label = label),
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    seed = 20260728,
+    size = 3
+  ) +
+  facet_wrap(~ condition, nrow = 1) +
+  labs(
+    x = expression("Cross-language mean " * Delta[RF]),
+    y = expression("Cross-language SD of " * Delta[RF])
+  ) +
+  theme(panel.grid.minor = element_blank())
+
+heterogeneity_plot
+
+ggsave(
+  analysis_output_path(
+    paths$figures,
+    "multivariate_cross_language_heterogeneity.pdf"
+  ),
+  heterogeneity_plot,
+  width = 11,
+  height = 6
+)
+```
+
+# Balanced-refit stability
+
+Each stability iteration draws a balanced authentic sample, creates a fresh
+authentic train/test split, estimates scaling from the training portion, fits
+an authentic classifier, and evaluates matched authentic and generated data.
+The resulting quantiles are descriptive subsampling ranges.
+
+```{r mv-stability-summary}
+stability_condition_summary <- combined_results |>
+  group_by(condition) |>
+  summarise(
+    n_model_language_cells = n(),
+    minimum_iteration_coverage =
+      finite_min(stability_iteration_coverage),
+    minimum_estimable_iterations =
+      finite_min(stability_n_estimable),
+    mean_primary_delta = finite_mean(mean_delta_bal_acc),
+    mean_refit_median_delta = finite_mean(stability_median_delta),
+    mean_abs_primary_refit_difference =
+      finite_mean(absolute_primary_stability_difference),
+    mean_direction_agreement =
+      finite_mean(stability_direction_agreement),
+    .groups = "drop"
+  ) |>
+  mutate(condition = factor(condition, levels = condition_order)) |>
+  arrange(condition)
+
+stability_condition_summary
+```
+
+```{r mv-stability-plot, fig.width=11, fig.height=7}
+stability_plot <- ggplot(
+  combined_results,
+  aes(
+    x = mean_delta_bal_acc,
+    y = stability_median_delta,
+    colour = condition
+  )
+) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    colour = "grey50",
+    linewidth = 0.5
+  ) +
+  geom_point(alpha = 0.8, size = 2) +
+  facet_wrap(~ language) +
+  labs(
+    x = expression("Primary " * Delta[RF]),
+    y = expression("Median balanced-refit " * Delta[RF]),
+    colour = NULL,
+    title = "Agreement between primary and balanced-refit estimates"
+  ) +
+  theme(legend.position = "bottom")
+
+stability_plot
+
+ggsave(
+  analysis_output_path(paths$figures, "multivariate_refit_stability.pdf"),
+  stability_plot,
+  width = 11,
+  height = 7
+)
+```
+
+# Interpretation
+
+The primary conclusions rest on whether authentic held-out balanced accuracy
+is above chance and on the sign and magnitude of \(\Delta_{\mathrm{RF}}\).
+Balanced-refit results describe sensitivity to sampling and refitting. An
+estimate close to zero indicates similar measured discriminability but is not,
+by itself, a formal equivalence result. Upper-bound recovery, the
+biomedical--biomedical control, and its empirical calibration margins are
+reported separately in `04_upper_bound_calibration.qmd`.
