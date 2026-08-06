@@ -1,0 +1,297 @@
+---
+title: "Data quality for multilingual biomedical model outputs"
+author: "Justin Hofenbitzer"
+date: "2026-07-26"
+format:
+  html:
+    toc-depth: 2
+---
+
+# Aim
+
+This notebook determines whether each model--language cell is sufficiently
+complete and comparable for the substantive analyses. It reports corpus
+coverage, fallback filtering, contrast sizes, and feature availability. It
+does not test sublanguage alignment.
+
+```{r dq-setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 9,
+  fig.height = 5
+)
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(purrr)
+library(tibble)
+library(stringr)
+
+source(file.path("analysis", "helpers.R"))
+
+theme_set(theme_minimal(base_size = 12))
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r dq-configuration}
+paths <- analysis_paths()
+result_root <- paths$univariate_results
+
+real_results_dir <- Sys.getenv(
+  "ANALYSIS_REAL_RESULTS_DIR",
+  unset = file.path(result_root, "real")
+)
+
+expected_items_per_model_language <- as.integer(Sys.getenv(
+  "EXPECTED_ITEMS_PER_MODEL_LANGUAGE",
+  unset = "30000"
+))
+
+expected_languages <- c(
+  "de", "en", "es", "fr", "it", "nl", "pl", "ro", "sv"
+)
+
+primary_contrast <- "real_general_vs_biomedical"
+```
+
+# Load quality-control artifacts
+
+```{r dq-load}
+quality_files <- c(
+  "model_registry",
+  "fallback_filter_summary",
+  "contrast_counts",
+  "scoring_input_summary",
+  "bad_lang_feat",
+  "feats_ok",
+  "postprocessing_complete"
+)
+
+quality_bundle <- load_analysis_results(
+  result_root = result_root,
+  files = quality_files,
+  real_results_dir = real_results_dir
+)
+
+model_registry <- quality_bundle$primary$model_registry
+fallback_filter_summary <- quality_bundle$primary$fallback_filter_summary
+contrast_counts <- quality_bundle$primary$contrast_counts
+scoring_input_summary <- quality_bundle$primary$scoring_input_summary
+bad_lang_feat <- quality_bundle$primary$bad_lang_feat
+feats_ok <- quality_bundle$primary$feats_ok
+completion_status <- quality_bundle$primary$postprocessing_complete
+```
+
+# Run coverage
+
+```{r dq-run-coverage}
+run_coverage <- quality_bundle$index |>
+  transmute(
+    analysis_model,
+    contrast,
+    result_available = has_scores,
+    completion_marker = has_completion_marker,
+    stable_results_available = has_stable_results
+  ) |>
+  arrange(contrast, analysis_model)
+
+run_coverage
+```
+
+```{r dq-model-inventory}
+model_inventory <- model_registry |>
+  filter(contrast == primary_contrast) |>
+  select(
+    any_of(c(
+      "model_id", "model_label", "feature_family", "n_languages", "languages"
+    ))
+  ) |>
+  distinct() |>
+  arrange(model_id)
+
+model_inventory
+```
+
+# Corpus filtering
+
+```{r dq-fallback}
+expected_total_per_model <-
+  expected_items_per_model_language * length(expected_languages)
+
+fallback_by_model <- fallback_filter_summary |>
+  filter(contrast == primary_contrast) |>
+  group_by(analysis_model, model_id, model_label) |>
+  summarise(
+    n_kept = sum(n_kept, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    n_expected = expected_total_per_model,
+    n_removed_or_missing = pmax(n_expected - n_kept, 0),
+    prop_removed_or_missing = safe_ratio(
+      n_removed_or_missing,
+      n_expected
+    )
+  ) |>
+  arrange(desc(prop_removed_or_missing))
+
+
+fallback_by_model <- fallback_by_model %>%
+  mutate(condition = case_when(str_detect(model_label, "completion") ~ "completion",
+                               str_detect(model_label, "prompt") ~ "prompt",
+                               .default = model_label))
+
+fallback_by_model
+
+fallback_by_model %>%
+  filter(condition == "completion")
+```
+
+```{r dq-fallback-plot}
+ggplot(
+  fallback_by_model,
+  aes(
+    x = prop_removed_or_missing,
+    y = fct_reorder(model_label, prop_removed_or_missing)
+  )
+) +
+  geom_col(fill = "#4472C4") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  labs(
+    x = "Removed or missing outputs",
+    y = NULL,
+    title = "Output loss before linguistic analysis"
+  )
+```
+
+# Contrast sizes
+
+```{r dq-cell-sizes}
+cell_sizes <- contrast_counts |>
+  filter(contrast == primary_contrast) |>
+  mutate(
+    domain = as.character(domain),
+    comparison_group = case_when(
+      domain == "general" ~ "reference",
+      domain == "biomedical" ~ "target",
+      TRUE ~ domain
+    )
+  ) |>
+  group_by(
+    analysis_model,
+    model_id,
+    model_label,
+    language,
+    comparison_group
+  ) |>
+  summarise(n = sum(n), .groups = "drop") |>
+  pivot_wider(
+    names_from = comparison_group,
+    values_from = n,
+    values_fill = 0
+  )
+
+cell_sizes <- add_missing_columns(
+  cell_sizes,
+  c("reference", "target"),
+  value = 0
+) |>
+  mutate(
+    smallest_cell = pmin(reference, target),
+    largest_cell = pmax(reference, target),
+    max_to_min_ratio = safe_ratio(largest_cell, smallest_cell)
+  ) |>
+  arrange(desc(max_to_min_ratio))
+
+cell_sizes
+```
+
+# Feature availability
+
+```{r dq-feature-availability}
+feature_availability <- feats_ok |>
+  filter(contrast == primary_contrast) |>
+  count(
+    analysis_model,
+    model_id,
+    language,
+    name = "n_features_retained"
+  ) |>
+  full_join(
+    bad_lang_feat |>
+      filter(contrast == primary_contrast) |>
+      count(
+        analysis_model,
+        model_id,
+        language,
+        name = "n_features_removed"
+      ),
+    by = c(
+      "analysis_model", "model_id", "language"
+    )
+  ) |>
+  mutate(
+    across(
+      c(n_features_retained, n_features_removed),
+      ~ replace_na(.x, 0L)
+    ),
+    n_features_considered =
+      n_features_retained + n_features_removed,
+    prop_features_removed = safe_ratio(
+      n_features_removed,
+      n_features_considered
+    )
+  ) |>
+  arrange(desc(prop_features_removed))
+
+feature_availability
+```
+
+# Analysis eligibility
+
+```{r dq-eligibility}
+model_quality_summary <- cell_sizes |>
+  group_by(analysis_model, model_id, model_label) |>
+  summarise(
+    n_languages_observed = n_distinct(language),
+    minimum_reference_n = min(reference),
+    minimum_target_n = min(target),
+    maximum_imbalance_ratio = max(max_to_min_ratio, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  left_join(
+    fallback_by_model |>
+      select(
+        analysis_model,
+        model_id,
+        prop_removed_or_missing
+      ),
+    by = c("analysis_model", "model_id")
+  ) |>
+  left_join(
+    feature_availability |>
+      group_by(analysis_model, model_id) |>
+      summarise(
+        maximum_feature_loss =
+          max(prop_features_removed, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = c("analysis_model", "model_id")
+  ) |>
+  mutate(
+    complete_language_inventory =
+      n_languages_observed == length(expected_languages),
+    eligible_for_analysis =
+      complete_language_inventory &
+        minimum_reference_n > 0 &
+        minimum_target_n > 0
+  ) |>
+  arrange(eligible_for_analysis, desc(maximum_imbalance_ratio))
+
+model_quality_summary
+```
