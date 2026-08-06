@@ -1,0 +1,536 @@
+---
+title: "Univariate alignment of multilingual biomedical model outputs"
+author: "Justin Hofenbitzer"
+date: "2026-07-26"
+format:
+  html:
+    toc-depth: 2
+---
+
+# Purpose
+
+This report evaluates whether biomedical model outputs reproduce the
+individual linguistic-feature shifts observed between authentic general and
+authentic biomedical language. It reports significant-feature recovery,
+agreement with the authentic Borda feature ranking, effect-direction
+agreement, and sampling stability.
+
+The independent authentic upper bound is evaluated only in
+`04_upper_bound_calibration.qmd`. It is excluded from the model summaries and
+figures below.
+
+```{r uv-setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 7
+)
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(forcats)
+
+source(file.path("analysis", "helpers.R"))
+
+theme_set(theme_minimal(base_size = 12))
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r uv-configuration}
+paths <- analysis_paths()
+result_root <- paths$univariate_results
+real_results_dir <- Sys.getenv(
+  "ANALYSIS_REAL_RESULTS_DIR",
+  unset = file.path(result_root, "real")
+)
+
+primary_contrast <- "real_general_vs_biomedical"
+upper_bound_model_id <- "upper_bound"
+alpha <- 0.05
+
+minimum_iteration_coverage <- 0.95
+minimum_direction_agreement <- 0.90
+minimum_top_k_rate <- 0.80
+cluster_recovery_threshold <- 0.50
+```
+
+# Inputs
+
+```{r uv-load}
+univariate_bundle <- load_analysis_results(
+  result_root = result_root,
+  files = c(
+    "per_lang_scores",
+    "balanced_stability_feature_summary",
+    "balanced_stability_rank_summary"
+  ),
+  stable_files = c(
+    "stable_significant_scores",
+    "per_lang_clusters"
+  ),
+  real_results_dir = real_results_dir
+)
+
+per_lang_scores <- univariate_bundle$primary$per_lang_scores
+balanced_feature_summary <-
+  univariate_bundle$primary$balanced_stability_feature_summary
+balanced_rank_summary <-
+  univariate_bundle$primary$balanced_stability_rank_summary
+stable_significant_scores <-
+  univariate_bundle$stable$stable_significant_scores
+stable_per_lang_clusters <-
+  univariate_bundle$stable$per_lang_clusters
+
+real_feature_fps <- read_real_table(real_results_dir, "feature_fps")
+real_per_lang_scores <- read_real_table(
+  real_results_dir,
+  "per_lang_scores"
+)
+real_cluster_fps <- read_real_table(
+  real_results_dir,
+  "cluster_fps",
+  required = FALSE
+)
+
+if (nrow(stable_significant_scores) == 0L) {
+  stop(
+    "No stability-supported significant scores were found. ",
+    "Run src/alignment/univariate_stability.R first."
+  )
+}
+```
+
+# Feature-level alignment
+
+Permutation significance defines the primary feature inventory. Balanced
+resampling is reported separately as a robustness check and does not replace
+the permutation test.
+
+```{r uv-prepare-scores}
+full_scores <- per_lang_scores |>
+  mutate(
+    language = as.character(language),
+    is_significant = is.finite(q_perm) & q_perm <= alpha
+  )
+
+model_language_inventory <- full_scores |>
+  filter(
+    contrast == primary_contrast,
+    model_id != upper_bound_model_id
+  ) |>
+  distinct(analysis_model, model_id, model_label, language)
+
+significant_scores <- full_scores |>
+  filter(
+    contrast == primary_contrast,
+    model_id != upper_bound_model_id,
+    is_significant
+  ) |>
+  distinct(
+    analysis_model,
+    model_id,
+    model_label,
+    language,
+    feature,
+    .keep_all = TRUE
+  )
+
+stable_scores <- stable_significant_scores |>
+  filter(
+    contrast == primary_contrast,
+    model_id != upper_bound_model_id
+  ) |>
+  mutate(language = as.character(language)) |>
+  distinct(
+    analysis_model,
+    model_id,
+    model_label,
+    language,
+    feature,
+    .keep_all = TRUE
+  )
+
+authentic_feature_reference <- real_feature_fps |>
+  mutate(language = as.character(language)) |>
+  distinct(language, feature, direction)
+
+authentic_scores <- real_per_lang_scores |>
+  mutate(language = as.character(language)) |>
+  distinct(language, feature, .keep_all = TRUE)
+```
+
+## Significant-feature recovery
+
+```{r uv-feature-recovery}
+authentic_feature_counts <- authentic_feature_reference |>
+  count(language, name = "n_authentic_significant")
+
+model_feature_counts <- significant_scores |>
+  count(
+    analysis_model,
+    model_id,
+    model_label,
+    language,
+    name = "n_model_significant"
+  )
+
+feature_overlap <- significant_scores |>
+  inner_join(
+    authentic_feature_reference |>
+      rename(authentic_direction = direction),
+    by = c("language", "feature")
+  ) |>
+  mutate(
+    model_direction_sign = normalize_direction(direction),
+    authentic_direction_sign = normalize_direction(authentic_direction),
+    direction_agrees = case_when(
+      is.na(model_direction_sign) |
+        is.na(authentic_direction_sign) ~ NA,
+      TRUE ~ model_direction_sign == authentic_direction_sign
+    )
+  )
+
+feature_overlap_counts <- feature_overlap |>
+  group_by(analysis_model, model_id, model_label, language) |>
+  summarise(
+    n_recovered = n_distinct(feature),
+    direction_agreement = if_else(
+      any(!is.na(direction_agrees)),
+      mean(direction_agrees, na.rm = TRUE),
+      NA_real_
+    ),
+    .groups = "drop"
+  )
+
+feature_recovery <- model_language_inventory |>
+  left_join(authentic_feature_counts, by = "language") |>
+  left_join(
+    model_feature_counts,
+    by = c("analysis_model", "model_id", "model_label", "language")
+  ) |>
+  left_join(
+    feature_overlap_counts,
+    by = c("analysis_model", "model_id", "model_label", "language")
+  ) |>
+  mutate(
+    across(
+      c(n_authentic_significant, n_model_significant, n_recovered),
+      ~ replace_na(.x, 0L)
+    ),
+    recall = safe_ratio(n_recovered, n_authentic_significant),
+    precision = safe_ratio(n_recovered, n_model_significant),
+    f1 = safe_f1(precision, recall)
+  )
+```
+
+## Agreement with the complete feature ranking
+
+Borda agreement uses all common valid features. It is therefore not
+conditioned on either model or authentic significance.
+
+```{r uv-borda-agreement}
+borda_agreement <- full_scores |>
+  filter(
+    contrast == primary_contrast,
+    model_id != upper_bound_model_id
+  ) |>
+  select(
+    analysis_model,
+    model_id,
+    model_label,
+    language,
+    feature,
+    model_borda = borda_score
+  ) |>
+  inner_join(
+    authentic_scores |>
+      select(language, feature, authentic_borda = borda_score),
+    by = c("language", "feature")
+  ) |>
+  group_by(analysis_model, model_id, model_label, language) |>
+  summarise(
+    n_common_features = n(),
+    rho_borda = safe_spearman(model_borda, authentic_borda),
+    .groups = "drop"
+  )
+
+model_language_summary <- feature_recovery |>
+  left_join(
+    borda_agreement,
+    by = c("analysis_model", "model_id", "model_label", "language")
+  ) |>
+  add_model_readable()
+
+model_language_summary
+```
+
+# Sampling stability
+
+The stability criteria require sufficient iteration coverage, agreement with
+the full-data effect direction, and regular appearance among the highest-ranked
+features.
+
+```{r uv-stability}
+feature_stability <- balanced_feature_summary |>
+  filter(
+    contrast == primary_contrast,
+    model_id != upper_bound_model_id
+  ) |>
+  mutate(
+    full_significant = is.finite(full_q_perm) & full_q_perm <= alpha,
+    stable_coverage =
+      is.finite(iteration_coverage) &
+        iteration_coverage >= minimum_iteration_coverage,
+    stable_direction =
+      is.finite(delta_sign_agreement) &
+        delta_sign_agreement >= minimum_direction_agreement,
+    stable_rank =
+      is.finite(top_k_rate) & top_k_rate >= minimum_top_k_rate,
+    stable = stable_coverage & stable_direction & stable_rank
+  )
+
+stability_by_language <- feature_stability |>
+  group_by(analysis_model, model_id, model_label, language) |>
+  summarise(
+    n_full_significant = sum(full_significant),
+    n_significant_and_stable = sum(full_significant & stable),
+    prop_significant_stable = safe_ratio(
+      n_significant_and_stable,
+      n_full_significant
+    ),
+    .groups = "drop"
+  ) |>
+  left_join(
+    balanced_rank_summary |>
+      filter(
+        contrast == primary_contrast,
+        model_id != upper_bound_model_id
+      ) |>
+      select(
+        analysis_model,
+        model_id,
+        model_label,
+        language,
+        median_rank_stability = median_spearman_rho
+      ),
+    by = c("analysis_model", "model_id", "model_label", "language")
+  )
+
+model_summary <- model_language_summary |>
+  left_join(
+    stability_by_language,
+    by = c("analysis_model", "model_id", "model_label", "language")
+  ) |>
+  group_by(analysis_model, model_id, model_label, model_readable) |>
+  summarise(
+    n_languages = n_distinct(language),
+    macro_recall = mean(recall, na.rm = TRUE),
+    macro_precision = mean(precision, na.rm = TRUE),
+    macro_f1 = mean(f1, na.rm = TRUE),
+    median_borda_rho = median(rho_borda, na.rm = TRUE),
+    mean_direction_agreement = mean(direction_agreement, na.rm = TRUE),
+    mean_significant_feature_stability = mean(
+      prop_significant_stable,
+      na.rm = TRUE
+    ),
+    median_rank_stability = median(median_rank_stability, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(macro_f1), desc(median_borda_rho))
+
+model_summary
+
+write_csv(
+  model_summary,
+  analysis_output_path(paths$tables, "univariate_model_summary.csv")
+)
+```
+
+# Model comparison
+
+```{r uv-recovery-plot, fig.width=11, fig.height=10}
+recovery_plot_data <- model_language_summary |>
+  mutate(
+    model_readable = fct_reorder(
+      model_readable,
+      recall,
+      .fun = mean,
+      na.rm = TRUE
+    )
+  )
+
+recovery_plot <- ggplot(
+  recovery_plot_data,
+  aes(x = recall, y = model_readable, colour = language)
+) +
+  geom_point(
+    position = position_jitter(height = 0.12, width = 0),
+    alpha = 0.75,
+    size = 1.8
+  ) +
+  geom_point(
+    data = model_summary,
+    aes(x = macro_recall, y = model_readable),
+    inherit.aes = FALSE,
+    shape = 18,
+    colour = "black",
+    size = 3
+  ) +
+  labs(
+    x = "Recall of authentic significant features",
+    y = NULL,
+    colour = "Language"
+  ) +
+  theme(legend.position = "bottom")
+
+recovery_plot
+
+ggsave(
+  analysis_output_path(paths$figures, "univariate_feature_recovery.pdf"),
+  recovery_plot,
+  width = 11,
+  height = 10
+)
+```
+
+```{r uv-borda-plot, fig.width=10, fig.height=12}
+borda_plot <- model_language_summary |>
+  mutate(model_readable = fct_rev(factor(model_readable))) |>
+  ggplot(
+    aes(x = language, y = model_readable, fill = rho_borda)
+  ) +
+  geom_tile(colour = "white", linewidth = 0.3) +
+  scale_fill_viridis_c(
+    limits = c(0, 1),
+    option = "D",
+    na.value = "grey90"
+  ) +
+  labs(
+    x = "Language",
+    y = NULL,
+    fill = expression(rho),
+    title = "Agreement with the authentic Borda feature ranking"
+  ) +
+  theme(panel.grid = element_blank())
+
+borda_plot
+
+ggsave(
+  analysis_output_path(paths$figures, "univariate_borda_agreement.pdf"),
+  borda_plot,
+  width = 10,
+  height = 12
+)
+```
+
+# Recurrently recovered features
+
+```{r uv-recurrent-features}
+stable_feature_overlap <- stable_scores |>
+  inner_join(
+    authentic_feature_reference |>
+      select(language, feature),
+    by = c("language", "feature")
+  )
+
+model_totals_by_language <- stable_scores |>
+  distinct(language, model_id) |>
+  count(language, name = "n_models")
+
+recurrent_recovered_features <- stable_feature_overlap |>
+  distinct(model_id, language, feature) |>
+  count(language, feature, name = "n_models_recovering_feature") |>
+  left_join(model_totals_by_language, by = "language") |>
+  mutate(
+    prop_models = safe_ratio(n_models_recovering_feature, n_models)
+  ) |>
+  group_by(language) |>
+  arrange(desc(n_models_recovering_feature), feature, .by_group = TRUE) |>
+  slice_head(n = 10) |>
+  ungroup()
+
+recurrent_recovered_features
+```
+
+# Correlated-feature clusters
+
+Clusters provide a secondary summary of correlated univariate features.
+Recovery uses maximum-cardinality one-to-one matching, preventing one model
+cluster from recovering several authentic clusters.
+
+```{r uv-cluster-recovery}
+if (nrow(real_cluster_fps) > 0L && nrow(stable_per_lang_clusters) > 0L) {
+  authentic_clusters <- real_cluster_fps |>
+    mutate(language = as.character(language)) |>
+    distinct(language, cluster_id, .keep_all = TRUE)
+
+  model_clusters <- stable_per_lang_clusters |>
+    filter(
+      contrast == primary_contrast,
+      model_id != upper_bound_model_id
+    ) |>
+    mutate(language = as.character(language)) |>
+    distinct(
+      analysis_model,
+      model_id,
+      model_label,
+      language,
+      cluster_id,
+      .keep_all = TRUE
+    )
+
+  cluster_recovery <- model_language_inventory |>
+    pmap_dfr(function(analysis_model, model_id, model_label, language) {
+      compare_cluster_sets(
+        reference_members = authentic_clusters |>
+          filter(.data$language == .env$language) |>
+          pull(members),
+        model_members = model_clusters |>
+          filter(
+            .data$analysis_model == .env$analysis_model,
+            .data$model_id == .env$model_id,
+            .data$language == .env$language
+          ) |>
+          pull(members),
+        threshold = cluster_recovery_threshold
+      ) |>
+        mutate(
+          analysis_model = analysis_model,
+          model_id = model_id,
+          model_label = model_label,
+          language = language,
+          .before = 1
+        )
+    })
+
+  cluster_model_summary <- cluster_recovery |>
+    group_by(analysis_model, model_id, model_label) |>
+    summarise(
+      macro_cluster_recall = mean(recall, na.rm = TRUE),
+      macro_cluster_precision = mean(precision, na.rm = TRUE),
+      macro_cluster_f1 = mean(f1, na.rm = TRUE),
+      mean_best_jaccard = mean(mean_best_jaccard, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    arrange(desc(macro_cluster_f1))
+
+  cluster_model_summary
+} else {
+  cat("Cluster results are unavailable for this render.")
+}
+```
+
+# Interpretation
+
+The model-level recovery and ranking summaries are the primary results.
+Direction agreement describes only recovered features, and the cluster table
+is a secondary representation of correlated features. Stability quantities
+show whether the observed result persists across equal-size resamples; they do
+not constitute an additional significance test.
