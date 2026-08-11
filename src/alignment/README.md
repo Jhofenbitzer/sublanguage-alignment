@@ -110,9 +110,12 @@ Rscript src/alignment/multivariate.R --list-models
 
 ## Input layout
 
-Feature CSVs matching this layout are distributed via Zenodo rather than
-checked into this repository; see the root README for the DOI and download
-instructions.
+The real feature CSVs used in the paper are distributed via Zenodo rather
+than checked into this repository; see the root README for the DOI and
+download instructions. `data/features/` ships with small synthetic fixtures
+in the meantime (see `data/features/README.md`) so these scripts can be run
+end to end without any external data; extracting the Zenodo deposit replaces
+them.
 
 The default paths are relative to the repository root:
 

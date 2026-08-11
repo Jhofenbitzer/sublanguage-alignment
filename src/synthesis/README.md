@@ -38,6 +38,15 @@ python src/synthesis/truncate_samples.py \
   --fraction 0.30
 ```
 
+`data/biomedical/truncated/` is already checked in as the output of this
+exact command, so `generate_biogpt.py` and `generate_completion_based.py`
+have a valid `--input` to run against out of the box.
+
+`create_upper_bound.py`'s `--input-dir`/`--original-sample-dir` and
+`generate_unigram.py`'s `--train-dir` point at the full external corpus,
+which has no fixed location in this repository (see "Full language corpora
+remain external" above) — supply your own path for those.
+
 Run the unigram baseline:
 
 ```bash

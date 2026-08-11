@@ -37,12 +37,15 @@ These locations can be overridden with `ANALYSIS_RESULT_ROOT` and
 `RF_RESULT_ROOT`, respectively. `ANALYSIS_OUTPUT_ROOT` overrides the report
 artifact directory.
 
-Both the feature matrices and the saved R outputs are distributed via Zenodo
-rather than checked into this repository; see the root README for the DOI and
-download instructions. Download and extract them to the default paths above
-so the reports can be rendered without recomputing the statistical analyses.
-To render newly computed results instead, set the two result-root variables to
-`outputs/alignment/univariate` and `outputs/alignment/multivariate`.
+The real feature matrices and the saved R outputs used in the paper are
+distributed via Zenodo rather than checked into this repository; see the root
+README for the DOI and download instructions. Download and extract them to
+the default paths above so the reports can be rendered without recomputing
+the statistical analyses. `data/features/` ships with small synthetic
+fixtures in the meantime (see `data/features/README.md`); extracting the
+Zenodo deposit replaces them. To render newly computed results instead, set
+the two result-root variables to `outputs/alignment/univariate` and
+`outputs/alignment/multivariate`.
 
 `diagnostics/real_reference.qmd` contains optional exploratory diagnostics for
 the authentic reference analysis.

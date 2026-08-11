@@ -32,19 +32,26 @@ synthesis ──> feature extraction ──> alignment analysis (R) ──> Quar
 
 `data/general/` and `data/biomedical/` contain small illustrative samples
 that document the expected input JSON layout only — they are not the corpora
-used in the paper.
+used in the paper. `data/biomedical/truncated/` is the checked-in output of
+the documented `truncate_samples.py` example call, so the completion-based
+generators have something to run against out of the box.
 
-The processed feature matrices and saved R analysis outputs (the inputs
-consumed by `analysis/`) are hosted on Zenodo rather than checked into this
+`data/features/` ships with small, seeded, synthetic feature CSVs (see
+[data/features/README.md](data/features/README.md)) so `src/alignment/*.R`
+can be run end to end without any external data. They are not real LFTK
+output and are not used for any result in the paper.
+
+The real processed feature matrices and saved R analysis outputs (the
+paper's actual inputs) are hosted on Zenodo rather than checked into this
 repository:
 
 - DOI: [10.5281/zenodo.21875590](https://doi.org/10.5281/zenodo.21875590)
 
-To reproduce the reports without recomputing the statistical analyses,
-download the Zenodo deposit and extract its contents to:
+To reproduce the paper's reports without recomputing the statistical
+analyses, download the Zenodo deposit and extract its contents over:
 
 - `data/features/` — feature CSVs (see `src/alignment/README.md` for the
-  exact real/model layout)
+  exact real/model layout; this replaces the synthetic fixtures above)
 - `data/processed/alignment/univariate/` and
   `data/processed/alignment/multivariate/` — saved R outputs
 
