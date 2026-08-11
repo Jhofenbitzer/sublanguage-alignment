@@ -1,6 +1,8 @@
 # Biomedical synthesis pipeline
 
-These scripts synthesize the biomedical texts. The repository contains short sample data, while the full language corpora remain external. 
+These scripts synthesize the biomedical texts. This repository includes
+short sample data only; the full language corpora used in the paper are
+external and not redistributed here.
 
 ## Scripts and order
 
