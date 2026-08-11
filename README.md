@@ -1,11 +1,9 @@
-# sublanguage-alignment
+# Sublanguage Alignment
 
-Code and data-processing pipeline for a paper on sublanguage alignment: whether
+Code and data-processing pipeline for our paper *Sublanguage Alignment: A Linguistically-Grounded Evaluation Method for Domain-Specific Text Generation*. Whether
 biomedical text produced by different generation methods reproduces the
 linguistic shifts that authentic biomedical text shows relative to general-
 domain language, across multiple languages and models.
-
-This repository is currently private and accompanies a paper under review.
 
 ## Pipeline
 
