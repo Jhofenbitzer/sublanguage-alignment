@@ -6,19 +6,50 @@ external and not redistributed here.
 
 ## Scripts and order
 
-1. `create_upper_bound.py` draws the disjoint upper-bound sample from the
-   external full biomedical corpus.
-2. `truncate_samples.py` creates evaluation prefixes.
-3. `generate_unigram.py` learns language-specific unigram distributions and
+1. `sample_corpora.py` builds per-language JSON corpora from raw general
+   (Wikipedia/Newscrawl/Web) and biomedical text files, and draws the
+   original downsampled (<=30k per language) biomedical sample.
+2. `create_upper_bound.py` draws the disjoint upper-bound sample from the
+   external full biomedical corpus, given the original sample from step 1.
+3. `truncate_samples.py` creates evaluation prefixes.
+4. `generate_unigram.py` learns language-specific unigram distributions and
    generates lexical continuations.
-4. `generate_biogpt.py` completes prefixes with BioGPT-Large.
-5. `generate_prompt_based.py` generates new biomedical sentences from prompts.
-6. `generate_completion_based.py` completes prefixes with the historical vLLM
+5. `generate_biogpt.py` completes prefixes with BioGPT-Large.
+6. `generate_prompt_based.py` generates new biomedical sentences from prompts.
+7. `generate_completion_based.py` completes prefixes with the historical vLLM
    model collection.
 
 `common.py` contains dependency-free validation, naming, JSON, and seed helpers.
 
 ## Example commands
+
+Build per-language JSON corpora (and the original biomedical downsample) from
+raw text files:
+
+```bash
+python src/synthesis/sample_corpora.py --config config/sample_corpora.yml
+```
+
+where `config/sample_corpora.yml` looks like:
+
+```yaml
+general_input_dir: /path/to/general_raw
+general_output_dir: /path/to/general_per_language
+general_max_per_source: 10000
+general_seed: 13
+
+txt_input_dir: /path/to/biomedical_raw
+txt_output_dir: /path/to/biomedical_per_language
+txt_max_per_source: 30000
+txt_seed: 13
+```
+
+General corpus files must match `<lang>_<wikipedia|newscrawl|web>_...-sentences.txt`
+(one `<id>\t<sentence>` per line); biomedical files are one sentence per line,
+named so the leading characters are a 2- or 3-letter language code (e.g.
+`de.txt`, `deu_corpus.txt`). `txt_output_dir/downsampled_30k/` is written as
+`create_upper_bound.py`'s default `--original-sample-dir`, so the two scripts
+chain directly: point `create_upper_bound.py --input-dir` at `txt_output_dir`.
 
 Create the upper bound from an external corpus:
 
@@ -96,7 +127,10 @@ Omitting `--model` from the completion command uses the full model list. GPU ass
 
 ## Environment and verification
 
-The preprocessing and unigram scripts use only Python's standard library. The
+The preprocessing and unigram scripts use only Python's standard library,
+with one exception: `sample_corpora.py`'s YAML config loader needs `PyYAML`
+(`pip install pyyaml`). That import is scoped to `load_config`, so the
+module's parsing and sampling functions import and test without it. The
 neural generators additionally require the packages used by the corresponding
 runtime:
 
