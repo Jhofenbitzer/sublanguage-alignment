@@ -1,0 +1,26 @@
+[
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:0",
+    "original": "Det här är en exempeltext",
+    "truncated": "Det här"
+  },
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:1",
+    "original": "Det här är en annan exempeltext",
+    "truncated": "Det här"
+  },
+  {
+    "language": "Swedish",
+    "language_tag": "sv",
+    "source": "biomedical",
+    "id": "sv:2",
+    "original": "Jag är ett exempel",
+    "truncated": "Jag är"
+  }
+]

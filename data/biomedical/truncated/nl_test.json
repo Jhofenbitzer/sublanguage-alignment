@@ -1,0 +1,26 @@
+[
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:0",
+    "original": "Dit is een voorbeeldtekst",
+    "truncated": "Dit is"
+  },
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:1",
+    "original": "Dit is nog een voorbeeldtekst",
+    "truncated": "Dit is"
+  },
+  {
+    "language": "Dutch",
+    "language_tag": "nl",
+    "source": "biomedical",
+    "id": "nl:2",
+    "original": "Ik ben een voorbeeld",
+    "truncated": "Ik ben"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "language": "French",
+    "language_tag": "fr",
+    "source": "biomedical",
+    "id": "fr:0",
+    "original": "Ceci est un exemple de texte",
+    "truncated": "Ceci est"
+  },
+  {
+    "language": "French",
+    "language_tag": "fr",
+    "source": "biomedical",
+    "id": "fr:1",
+    "original": "Ceci est un autre exemple de texte",
+    "truncated": "Ceci est un"
+  },
+  {
+    "language": "French",
+    "language_tag": "fr",
+    "source": "biomedical",
+    "id": "fr:2",
+    "original": "Je suis un exemple",
+    "truncated": "Je suis"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "language": "Italian",
+    "language_tag": "it",
+    "source": "biomedical",
+    "id": "it:0",
+    "original": "Questo è un testo di esempio",
+    "truncated": "Questo è"
+  },
+  {
+    "language": "Italian",
+    "language_tag": "it",
+    "source": "biomedical",
+    "id": "it:1",
+    "original": "Questo è un altro testo di esempio",
+    "truncated": "Questo è un"
+  },
+  {
+    "language": "Italian",
+    "language_tag": "it",
+    "source": "biomedical",
+    "id": "it:2",
+    "original": "Sono un esempio",
+    "truncated": "Sono"
+  }
+]

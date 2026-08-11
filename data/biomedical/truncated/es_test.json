@@ -1,0 +1,26 @@
+[
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:0",
+    "original": "Este es un texto de muestra",
+    "truncated": "Este es"
+  },
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:1",
+    "original": "Este es otro texto de muestra",
+    "truncated": "Este es"
+  },
+  {
+    "language": "Spanish",
+    "language_tag": "es",
+    "source": "biomedical",
+    "id": "es:2",
+    "original": "Soy un ejemplo",
+    "truncated": "Soy"
+  }
+]

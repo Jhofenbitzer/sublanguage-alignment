@@ -1,0 +1,26 @@
+[
+  {
+    "language": "Polish",
+    "language_tag": "pl",
+    "source": "biomedical",
+    "id": "pl:0",
+    "original": "To jest przykładowy tekst",
+    "truncated": "To jest"
+  },
+  {
+    "language": "Polish",
+    "language_tag": "pl",
+    "source": "biomedical",
+    "id": "pl:1",
+    "original": "To jest kolejny przykładowy tekst",
+    "truncated": "To jest"
+  },
+  {
+    "language": "Polish",
+    "language_tag": "pl",
+    "source": "biomedical",
+    "id": "pl:2",
+    "original": "Jestem przykładem",
+    "truncated": "Jestem"
+  }
+]

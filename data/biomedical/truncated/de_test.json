@@ -1,0 +1,26 @@
+[
+  {
+    "language": "German",
+    "language_tag": "de",
+    "source": "biomedical",
+    "id": "de:0",
+    "original": "Das ist ein Beispieltext",
+    "truncated": "Das ist"
+  },
+  {
+    "language": "German",
+    "language_tag": "de",
+    "source": "biomedical",
+    "id": "de:1",
+    "original": "Das ist noch ein Beispieltext",
+    "truncated": "Das ist"
+  },
+  {
+    "language": "German",
+    "language_tag": "de",
+    "source": "biomedical",
+    "id": "de:2",
+    "original": "Ich bin ein Beispiel",
+    "truncated": "Ich bin"
+  }
+]

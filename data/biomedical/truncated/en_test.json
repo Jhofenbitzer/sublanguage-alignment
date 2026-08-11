@@ -1,0 +1,26 @@
+[
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:0",
+    "original": "This is a sample text",
+    "truncated": "This is"
+  },
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:1",
+    "original": "This is another sample text",
+    "truncated": "This is"
+  },
+  {
+    "language": "English",
+    "language_tag": "en",
+    "source": "biomedical",
+    "id": "en:2",
+    "original": "I am an example",
+    "truncated": "I am"
+  }
+]
