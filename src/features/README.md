@@ -37,25 +37,44 @@ processing one type of input, for example:
 
 ## Example
 
+By default, output is grouped into `<output-root>/<date>/<model>/features_<model>_<domain>.csv`
+— `<date>` is parsed from the input filename (`no_date` when none is found),
+so one invocation covering several dates or models writes each combination to
+its own subdirectory rather than overwriting a shared file. `src/alignment/*.R`
+discovers CSVs recursively, so this nested form is always safe to feed it.
+
+To land output directly in the flat layout `src/alignment/README.md`
+documents (`data/features/models/<feature-family>/features_<model>_<domain>_<lang>.csv`,
+no `<date>/<model>/` subdirectories), add `--flat-output` and run one
+invocation per language, with `--output-root` set to the family directory:
+
 ```bash
-python src/features/extract_lftk.py \
-  --input-dir outputs/completions \
-  --output-root data/features/completion_features \
-  --n-process 8 \
-  --batch-size 512 \
-  --spacy-model-size lg \
-  --language-filter all \
-  --text-fields synthesized,text
+for lang in de en es fr it nl pl ro sv; do
+  python src/features/extract_lftk.py \
+    --input-dir outputs/completions \
+    --output-root data/features/models/completions20260216_bio \
+    --n-process 8 \
+    --batch-size 512 \
+    --spacy-model-size lg \
+    --language-filter "$lang" \
+    --flat-output \
+    --text-fields synthesized,text
+done
 ```
 
-Outputs follow this structure:
+`--flat-output` raises instead of silently overwriting a file if the input
+directory actually spans more than one date/model/domain combination for the
+same language filter — drop it (or invoke once per combination) if that
+happens.
 
-```text
-<output-root>/<date>/<model>/features_<model>_<domain>.csv
-```
-
-When `--language-filter` selects one language, its normalized two-letter code is
-appended to the CSV filename.
+When `--language-filter` selects one language, its normalized two-letter code
+is appended to the CSV filename (`features_<model>_<domain>_<lang>.csv`); this
+is required to avoid collisions when `--flat-output` is set, and is what
+`completions20260216_bio` and `vllm_features` already use. Passing
+`--language-filter all` never appends a language suffix, so combine it with
+`--flat-output` only when the whole call covers a single language already
+(for example, single-language input files), or rows across languages have to
+be told apart via the `country` column instead.
 
 Malformed JSONL records are skipped by default and counted in
 `<output-root>/error_count.csv`. Use `--malformed-record-policy error` to stop

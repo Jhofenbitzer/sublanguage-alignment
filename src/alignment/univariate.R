@@ -270,7 +270,14 @@ extract_biomedical_language <- function(path,
 }
 
 resolve_family_dir <- function(root, family) {
-  candidates <- c(file.path(root, family), file.path(root, "outputs", family))
+  # "models/<family>" is the primary convention (mirrors the "real" vs
+  # "models" split used for the real-reference directory); the other two are
+  # kept for backward compatibility with older layouts.
+  candidates <- c(
+    file.path(root, "models", family),
+    file.path(root, family),
+    file.path(root, "outputs", family)
+  )
   existing <- candidates[dir.exists(candidates)]
   if (length(existing) == 0) return(NA_character_)
   existing[[1]]

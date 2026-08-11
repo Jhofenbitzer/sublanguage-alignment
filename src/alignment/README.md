@@ -121,14 +121,20 @@ The default paths are relative to the repository root:
 
 ```text
 data/features/real/                         real general and biomedical CSVs
-data/features/<feature-family>/             biomedical feature CSVs
+data/features/models/<feature-family>/       biomedical feature CSVs, one directory per family
 outputs/alignment/univariate/               analysis results and checkpoints
 outputs/alignment/multivariate/             random-forest results
 ```
 
-Biomedical files may be language-specific, for example `features_model_biomedical_de.csv`, or may contain multiple languages in `features_model_biomedical.csv`. For combined files, every row must contain a supported language in the `country` column. Real general files follow the same combined or language-specific convention.
+`real/features_real_general.csv` and `real/features_real_biomedical.csv` are
+combined, all-language files; every row identifies its language in the
+`country` column (for example `general_deu` or `biomedical_de` — either an
+ISO 639-1 or a mapped ISO 639-3 suffix is accepted).
 
-The expected biomedical feature-family names are:
+Biomedical files under `models/<feature-family>/` may be language-specific,
+for example `features_model_biomedical_de.csv`, or may contain multiple
+languages in `features_model_biomedical.csv` identified via `country`. The
+expected biomedical feature-family names are:
 
 ```text
 biogpt_features
@@ -138,7 +144,13 @@ upper_bound_features
 vllm_features
 ```
 
-If none of these directories exists, biomedical CSVs are discovered recursively below `data/features`. This supports the date/model directories written by `src/features/extract_lftk.py`.
+Each is resolved as `data/features/models/<family>/`, recursively searched,
+so per-model subdirectories (as written by `src/features/extract_lftk.py`,
+one job per language) are picked up regardless of nesting depth. `<family>`
+directly below `data/features/` (no `models/` layer) or below
+`data/features/outputs/` are also recognized, for compatibility with older
+layouts. If none of the family directories exists, biomedical CSVs are
+discovered recursively below `data/features` as a last resort.
 
 ## Configuration
 

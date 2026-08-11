@@ -50,8 +50,10 @@ repository:
 To reproduce the paper's reports without recomputing the statistical
 analyses, download the Zenodo deposit and extract its contents over:
 
-- `data/features/` — feature CSVs (see `src/alignment/README.md` for the
-  exact real/model layout; this replaces the synthetic fixtures above)
+- `data/features/` — feature CSVs, laid out as `real/` (combined authentic
+  general/biomedical CSVs) and `models/<feature-family>/` (per-model,
+  per-language CSVs); see `src/alignment/README.md` for the exact layout.
+  This replaces the synthetic fixtures above
 - `data/processed/alignment/univariate/` and
   `data/processed/alignment/multivariate/` — saved R outputs
 

@@ -421,6 +421,7 @@ def process_input_directory(
     recursive: bool,
     malformed_policy: str,
     max_malformed_records: int,
+    flat_output: bool = False,
 ) -> None:
     """Extract features from all selected records in an input directory."""
     input_paths = list(iter_input_files(input_dir, recursive=recursive))
@@ -474,6 +475,22 @@ def process_input_directory(
     if not grouped:
         raise ValueError("No usable records matched the extraction settings")
 
+    if flat_output:
+        suffix = f"_{requested_language}" if requested_language != "all" else ""
+        flat_paths: dict[Path, tuple[str, str, str]] = {}
+        for date, model, domain in grouped:
+            safe_model = safe_path_component(model)
+            candidate = output_root / f"features_{safe_model}_{domain}{suffix}.csv"
+            collision = flat_paths.get(candidate)
+            if collision is not None:
+                raise ValueError(
+                    f"--flat-output would overwrite {candidate}: groups "
+                    f"{collision} and {(date, model, domain)} both resolve to "
+                    "the same filename. Drop --flat-output, or invoke once "
+                    "per model/date/language so groups can't collide."
+                )
+            flat_paths[candidate] = (date, model, domain)
+
     feature_keys = get_feature_keys(lftk)
     nlp_cache: dict[str, Any] = {}
     total_written = 0
@@ -484,7 +501,7 @@ def process_input_directory(
             by_language.setdefault(record.language, []).append(record)
 
         safe_model = safe_path_component(model)
-        output_dir = output_root / date / safe_model
+        output_dir = output_root if flat_output else output_root / date / safe_model
         output_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_{requested_language}" if requested_language != "all" else ""
         output_path = output_dir / f"features_{safe_model}_{domain}{suffix}.csv"
@@ -552,6 +569,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--recursive", action="store_true")
     parser.add_argument(
+        "--flat-output",
+        action="store_true",
+        help=(
+            "Write features_<model>_<domain>[_<lang>].csv directly under "
+            "--output-root instead of nesting under <date>/<model>/. Only "
+            "safe when one invocation covers a single date/model/domain "
+            "group, e.g. one model processed one language at a time into "
+            "its own data/features/models/<feature-family>/ directory; "
+            "raises if two groups would collide on the same filename."
+        ),
+    )
+    parser.add_argument(
         "--malformed-record-policy",
         choices=["error", "skip"],
         default="skip",
@@ -601,6 +630,7 @@ def main() -> None:
         recursive=args.recursive,
         malformed_policy=args.malformed_record_policy,
         max_malformed_records=args.max_malformed_records,
+        flat_output=args.flat_output,
     )
 
 
