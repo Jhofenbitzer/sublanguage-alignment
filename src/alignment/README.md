@@ -110,6 +110,10 @@ Rscript src/alignment/multivariate.R --list-models
 
 ## Input layout
 
+Feature CSVs matching this layout are distributed via Zenodo rather than
+checked into this repository; see the root README for the DOI and download
+instructions.
+
 The default paths are relative to the repository root:
 
 ```text
@@ -193,10 +197,4 @@ The multivariate method settings retain `RF_*` names because they configure rand
 
 The univariate scripts require R packages `dplyr`, `tidyr`, `stringr`, `purrr`, `tibble`, and `readr`. The multivariate script additionally requires `ranger` and `rpart`.
 
-Run the lightweight statistical regression checks with:
-
-```bash
-Rscript tests/test_common.R
-Rscript tests/test_univariate.R
-Rscript tests/test_multivariate.R
-```
+Lightweight statistical regression checks (`tests/test_common.R`, `tests/test_univariate.R`, `tests/test_multivariate.R`) are planned but not yet added.
