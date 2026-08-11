@@ -4,6 +4,8 @@ Code and data-processing pipeline for the paper *Sublanguage Alignment: A
 Linguistically-Grounded Evaluation Method for Domain-Specific Text
 Generation*.
 
+![[sublanguage-alignment-schematic-high-resolution_new_new_new.pdf]]
+
 ## Background
 
 Authentic biomedical text differs from general-domain text in measurable
