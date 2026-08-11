@@ -25,8 +25,8 @@ The univariate and multivariate reports write compact model summaries to
 `outputs/analysis/tables/`. Figures and other derived tables are written below
 `outputs/analysis/`.
 
-The source feature matrices belong in `data/processed/features/`; see that
-directory's README for the exact real/model layout and checksum convention.
+The source feature matrices belong in `data/features/`; see
+`src/alignment/README.md` for the exact real/model layout.
 
 By default, the reports read computed results from:
 
@@ -37,9 +37,11 @@ These locations can be overridden with `ANALYSIS_RESULT_ROOT` and
 `RF_RESULT_ROOT`, respectively. `ANALYSIS_OUTPUT_ROOT` overrides the report
 artifact directory.
 
-The defaults point to the saved R outputs distributed with the repository, so
-the reports can be rendered without recomputing the statistical analyses. To
-render newly computed results instead, set the two result-root variables to
+Both the feature matrices and the saved R outputs are distributed via Zenodo
+rather than checked into this repository; see the root README for the DOI and
+download instructions. Download and extract them to the default paths above
+so the reports can be rendered without recomputing the statistical analyses.
+To render newly computed results instead, set the two result-root variables to
 `outputs/alignment/univariate` and `outputs/alignment/multivariate`.
 
 `diagnostics/real_reference.qmd` contains optional exploratory diagnostics for
